@@ -6,7 +6,6 @@ def get_tokenizer(model:str):
         encoding = tiktoken.get_encoding(model)
         return encoding.encode
     except:
-
         encoding = tiktoken.get_encoding('cl100k_base') # Gpt 4 fallback
         return encoding.encode 
 

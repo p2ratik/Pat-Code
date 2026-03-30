@@ -101,7 +101,29 @@ class ReadFileTool(Tool):
             output = "\n".join(formatted_lines)
             token_count = count_tokens(output)
             truncated = False
-            
 
+            if token_count > self.MAX_OUTPUT_TOKENS:
+                output = truncate_text(
+                   output,
+                   self.MAX_OUTPUT_TOKENS,
+                   suffix = f"\n... [truncated {total_lines} total lines]"
+                )
+                truncated = True
+
+            metadata_lines = []
+            if metadata_lines:
+                header = " | ".join(metadata_lines) + "\n\n"
+                output = header + output
+
+            return ToolResult.success_result(
+                output=output,
+                truncated=truncated,
+                metadata={
+                    "path": str(path),
+                    "total_lines": total_lines,
+                    "shown_start": start_idx + 1,
+                    "shown_end": end_idx,
+                },
+            )
         except Exception as e:
-            pass
+            return ToolResult.error_result(f"Failed to read file: {e}")

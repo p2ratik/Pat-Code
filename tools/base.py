@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Any
 from dataclasses import dataclass, field
 from pathlib import Path
+from pydantic.json_schema import model_json_schema
 
 class Toolkind(str, Enum):
     READ = "read"
