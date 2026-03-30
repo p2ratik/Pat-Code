@@ -29,7 +29,7 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def error_result(cls, success:bool, error : str, output :str = "", **kwargs : Any):
+    def error_result(cls, error : str, output :str = "", **kwargs : Any):
         return cls(
             success = False,
             output = output,
@@ -38,13 +38,21 @@ class ToolResult:
         )
     
     @classmethod
-    def success_result(cls, success:bool, error : str, output :str = "", **kwargs : Any):
+    def success_result(cls, output :str = "", **kwargs : Any):
         return cls(
             success = True,
-            error = None,
             output = output,
+            error = None,
             **kwargs
         )
+    # Just beautifying the error message if exist any!
+    def to_model_output(self):
+        if self.success:
+            return self.output
+        
+        return f"Error : {self.error}\n\nOutput:\n{self.output}"
+
+
 
 @dataclass
 class ToolConfirmation:

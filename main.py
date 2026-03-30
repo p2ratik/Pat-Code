@@ -19,12 +19,14 @@ class CLI:
             return await self._process_message(message)    
 
     async def _process_message(self, message : str | None = None):
+        
         if not self.agent:
             return None
         assistant_stream = False
         final_response = ""
         async for event in self.agent.run(message=message):
 
+            print(event)
             if event.type == AgentEventType.TEXT_DELTA:
                 if not assistant_stream:
                     self.tui.begin_assistant()

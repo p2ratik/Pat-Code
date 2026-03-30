@@ -10,9 +10,11 @@ def get_tokenizer(model:str):
         return encoding.encode 
 
 def estimate_tokens(text:str):
-    return max(1, len(text) // 4) 
+    if text:
+        return max(1, len(text) // 4) 
+    return 1
    
-def count_token(text: str, model:str):
+def count_tokens(text: str, model:str):
     tokenizer = get_tokenizer(model=model)
 
     if tokenizer and text:
@@ -27,11 +29,11 @@ def truncate_text(
     suffix: str = "\n... [truncated]",
     preserve_lines: bool = True,
 ):
-    current_tokens = count_token(text, model)
+    current_tokens = count_tokens(text, model)
     if current_tokens <= max_tokens:
         return text
 
-    suffix_tokens = count_token(suffix, model)
+    suffix_tokens = count_tokens(suffix, model)
     target_tokens = max_tokens - suffix_tokens
 
     if target_tokens <= 0:
@@ -49,7 +51,7 @@ def _truncate_by_lines(text: str, target_tokens: int, suffix: str, model: str) -
     current_tokens = 0
 
     for line in lines:
-        line_tokens = count_token(line + "\n", model)
+        line_tokens = count_tokens(line + "\n", model)
         if current_tokens + line_tokens > target_tokens:
             break
         result_lines.append(line)
@@ -68,7 +70,7 @@ def _truncate_by_chars(text: str, target_tokens: int, suffix: str, model: str) -
 
     while low < high:
         mid = (low + high + 1) // 2
-        if count_token(text[:mid], model) <= target_tokens:
+        if count_tokens(text[:mid], model) <= target_tokens:
             low = mid
         else:
             high = mid - 1
