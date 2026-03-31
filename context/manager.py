@@ -30,7 +30,7 @@ class ContextManager:
     def __init__(self)->None:
         self._messages: list[MessageItem] = []
         self._model_name = 'nvidia/nemotron-3-super-120b-a12b:free'
-        self._system_prompt = "youre a helpful Muslim Assistant from Iran"
+        self._system_prompt = "youre a helpful AI agent that can use tools . When calling a tool , you must provide valid JSON arguments matching the schema."
         pass
 
     def add_user_message(self, content:str)->None:

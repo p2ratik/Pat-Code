@@ -27,6 +27,7 @@ class ToolResult:
     output: str
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    truncated : bool = False
 
     @classmethod
     def error_result(cls, error : str, output :str = "", **kwargs : Any):

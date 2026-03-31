@@ -46,7 +46,7 @@ class ReadFileTool(Tool):
         if not path.is_file():
             return ToolResult.error_result(f"Path is not a file: {path}")       
 
-        file_size = path.stat().st_size() # File size in bytes
+        file_size = path.stat().st_size # File size in bytes
 
         if file_size > self.MAX_FILE_SIZE:
             return ToolResult.error_result(
@@ -99,7 +99,7 @@ class ReadFileTool(Tool):
                 formatted_lines.append(f"{i:6}|{line}")
 
             output = "\n".join(formatted_lines)
-            token_count = count_tokens(output)
+            token_count = count_tokens(text =output, model='nvidia/nemotron-3-super-120b-a12b:free')
             truncated = False
 
             if token_count > self.MAX_OUTPUT_TOKENS:

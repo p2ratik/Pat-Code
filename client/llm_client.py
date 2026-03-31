@@ -126,8 +126,9 @@ class LLMClient():
                             "arguments" : "",
                         }   
 
-                        if tool_call_delta.function:
-                            if tool_call_delta.function.name:
+                    if tool_call_delta.function:
+                        if tool_call_delta.function.name:
+                            if not tool_calls[idx]["name"]:
                                 tool_calls[idx]["name"] = tool_call_delta.function.name
 
                                 yield StreamEvent(
