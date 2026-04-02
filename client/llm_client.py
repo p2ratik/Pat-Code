@@ -19,7 +19,7 @@ class LLMClient():
         if self._client is None:
             try:
                 self._client = AsyncOpenAI(
-                    api_key = API_KEY,
+                    api_key = '',
                     base_url = 'https://openrouter.ai/api/v1',
                 )
             except Exception as e :

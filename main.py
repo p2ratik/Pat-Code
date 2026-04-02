@@ -18,15 +18,27 @@ class CLI:
             self.agent = agent
             return await self._process_message(message)    
 
+    def _get_tool_kind(self, tool_name: str) -> str | None:
+        tool_kind = None
+        tool = self.agent.tool_registry.get(tool_name)
+        if not tool:
+            tool_kind = None
+
+        tool_kind = tool.kind.value
+
+        return tool_kind
+    
+    # Runs only once .
     async def _process_message(self, message : str | None = None):
         
         if not self.agent:
             return None
         assistant_stream = False
         final_response = ""
-        async for event in self.agent.run(message=message):
 
-            print(event)
+        async for event in self.agent.run(message=message):
+            
+            
             if event.type == AgentEventType.TEXT_DELTA:
                 if not assistant_stream:
                     self.tui.begin_assistant()
@@ -35,16 +47,45 @@ class CLI:
                 content = event.data.get("content", "") # Ei content ta ek er por ek user dekhbe through the cli ui .
                 self.tui.stream_assistant_delta(content=content)
 
+            elif event.type == AgentEventType.AGENT_START:
+                self.tui.print_welcome(title="Pratik AI", lines = ["model : Claude Opus 6.9", "cwd : G/projects/AiAgent"] )
+
             elif event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content", "")
                 if assistant_stream:
                     self.tui.end_assistant()
-                    assistant_stream = False
+                    assistant_stream = False        
 
             elif event.type == AgentEventType.AGENT_ERROR:
                 print("bal")
                 error = event.data.get("error", "")
                 console.print(f"\n [error] Bro ya fuckd up : {error} !")
+
+            elif event.type == AgentEventType.TOOL_CALL_START:
+                tool_name = event.data.get("name", "unknown")
+                tool_kind = self._get_tool_kind(tool_name)
+                self.tui.tool_call_start(
+                    event.data.get("call_id", ""),
+                    tool_name,
+                    tool_kind,
+                    event.data.get("arguments", {}),
+                )
+
+            elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                tool_name = event.data.get("name", "unknown")
+                tool_kind = self._get_tool_kind(tool_name)
+                self.tui.tool_call_complete(
+                    event.data.get("call_id", ""),
+                    tool_name,
+                    tool_kind,
+                    event.data.get("success", False),
+                    event.data.get("output", ""),
+                    event.data.get("error"),
+                    event.data.get("metadata"),
+                    event.data.get("diff"),
+                    event.data.get("truncated", False),
+                    event.data.get("exit_code"),
+                )
 
         return final_response
 

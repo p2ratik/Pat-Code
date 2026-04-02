@@ -31,7 +31,7 @@ class AgentEvent:
     @classmethod
     def agent_end(cls, response:str, usage: TokenUsage)->AgentEvent:
         return cls(
-            type = AgentEventType.AGENT_START,
+            type = AgentEventType.AGENT_END,
             data = {"response":response, "usage":usage.__dict__ if usage else None}
         )
     @classmethod
@@ -83,7 +83,7 @@ class AgentEvent:
                 "error": result.error,
                 "metadata": result.metadata,
                 #"diff": result.diff.to_diff() if result.diff else None,
-                #"truncated": result.truncated,
+                "truncated": result.truncated,
                 #"exit_code": result.exit_code,
             },
         )
