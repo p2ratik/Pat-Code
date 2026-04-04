@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from config.config import Config
 from utils.text import count_tokens
 from typing import Any
 
@@ -27,9 +28,10 @@ class MessageItem:
 
 
 class ContextManager:
-    def __init__(self)->None:
+    def __init__(self, config : Config)->None:
         self._messages: list[MessageItem] = []
-        self._model_name = 'nvidia/nemotron-3-super-120b-a12b:free'
+        self.config = config
+        self._model_name = self.config.model_name
         self._system_prompt = "youre a helpful AI agent that can use tools . When calling a tool , you must provide valid JSON arguments matching the schema."
         pass
 
@@ -42,11 +44,12 @@ class ContextManager:
 
         self._messages.append(item)
 
-    def add_assistant_message(self, content:str)->None:
+    def add_assistant_message(self, content: str | None, tool_calls: list[dict[str, Any]] | None = None) -> None:
         item = MessageItem(
             role = 'assistant',
             content = content,
-            token_count = count_tokens(model=self._model_name, text=content)
+            token_count = count_tokens(model=self._model_name, text=content or ""),
+            tool_calls = tool_calls or [],
         )
 
         self._messages.append(item)

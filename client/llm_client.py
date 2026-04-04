@@ -15,6 +15,7 @@ class LLMClient():
         self._client : AsyncOpenAI | None = None
         self.config = config
 
+
     def get_client(self)->AsyncOpenAI:
         """This function creates and returns an async Open AI client if not existing"""
 
@@ -58,7 +59,7 @@ class LLMClient():
         client = self.get_client()
 
         kwargs = {
-            "model":'nvidia/nemotron-3-super-120b-a12b:free',
+            "model":self.config.model_name,
             "messages": messages,
             "stream":stream
         }

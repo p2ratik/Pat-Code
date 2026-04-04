@@ -26,7 +26,11 @@ class CLI:
     async def run_interactive(self) -> str | None:
 
         async with Agent(self.config) as agent:
-            self.tui.print_welcome(title="Pratik AI", lines = [f"model : {self.config.model_name}", f"cwd : {self.config.cwd}"] )
+            self.tui.print_welcome(
+                title="PAT",
+                version="0.0.1",
+                cwd=self.config.cwd,
+            )
             self.agent = agent
 
             while True:
@@ -51,7 +55,7 @@ class CLI:
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool_kind = None
-        tool = self.agent.tool_registry.get(tool_name)
+        tool = self.agent.session.tool_registry.get(tool_name)
         if not tool:
             tool_kind = None
 

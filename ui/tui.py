@@ -15,6 +15,7 @@ from rich.markdown import Markdown
 # from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
 from utils.text import truncate_text
+from rich.padding import Padding
 import re
 
 AGENT_THEME = Theme(
@@ -220,18 +221,53 @@ class TUI:
             ".sql": "sql",
         }.get(suffix, "text")
 
-    def print_welcome(self, title: str, lines: list[str]) -> None:
-        body = "\n".join(lines)
-        self.console.print(
-            Panel(
-                Text(body, style="code"),
-                title=Text(title, style="highlight"),
-                title_align="left",
-                border_style="border",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
+    def print_welcome(self, title: str, version: str, cwd: str) -> None:
+        PAT_ASCII = """
+    ██████╗  █████╗ ████████╗
+    ██╔══██╗██╔══██╗╚══██╔══╝
+    ██████╔╝███████║   ██║   
+    ██╔═══╝ ██╔══██║   ██║   
+    ██║     ██║  ██║   ██║   
+    ╚═╝     ╚═╝  ╚═╝   ╚═╝   """.strip()
+
+        # Top bracket frame with title and ASCII logo
+        header = Table.grid(padding=(0, 2))
+        header.add_column(justify="left", ratio=2)
+        header.add_column(justify="right", ratio=1)
+
+        left = Text()
+        left.append("Welcome to\n", style="bold dim white")
+        left.append(PAT_ASCII + "\n", style="bold cyan")
+        left.append(f"\n  CLI Version {version}", style="bold white")
+
+        right = Text()
+        right.append("◈", style="bold magenta")  # decorative glyph as mascot placeholder
+
+        header.add_row(left, right)
+
+        # Corner-bracket panel (Copilot style)
+        top_rule    = Text("┌" + "─" * 48 + "┐", style="dim cyan")
+        bottom_rule = Text("└" + "─" * 48 + "┘", style="dim cyan")
+
+        # Info section below
+        info = Text()
+        info.append(f"\nVersion {version}  ·  your free coding partner\n\n", style="bold white")
+        info.append(f"● ", style="bold cyan")
+        info.append(f"cwd : {cwd}\n", style="white")
+
+        full = Group(
+            top_rule,
+            Padding(header, (0, 2)),
+            bottom_rule,
+            info,
         )
+
+        self.console.print(Panel(
+            full,
+            border_style="bright_black",
+            box=box.MINIMAL,
+            padding=(0, 1),
+        ))
 
     def tool_call_complete(
         self,
