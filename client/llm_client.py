@@ -5,22 +5,25 @@ from client.response import TextDelta, ToolCall, ToolCallDelta, parse_tool_call_
 from client.response import TokenUsage
 from client.response import StreamEventType
 from client.response import StreamEvent
+from config.config import Config
 import os
 
-API_KEY = os.getenv('API_KEY')
+\
 class LLMClient():
 
-    def __init__(self):
+    def __init__(self, config:Config):
         self._client : AsyncOpenAI | None = None
+        self.config = config
 
     def get_client(self)->AsyncOpenAI:
         """This function creates and returns an async Open AI client if not existing"""
 
+        
         if self._client is None:
             try:
                 self._client = AsyncOpenAI(
-                    api_key = '',
-                    base_url = 'https://openrouter.ai/api/v1',
+                    api_key = self.config.api_key ,
+                    base_url = self.config.base_url   #'https://openrouter.ai/api/v1',
                 )
             except Exception as e :
                 print(f"LLM client not created : {e}")
