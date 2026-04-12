@@ -115,7 +115,7 @@ class TUI:
                     byte_count = len(value.encode("utf-8", errors="replace"))
                     value = f"<{line_count} lines • {byte_count} bytes>"
 
-            if isinstance(value, bool):
+            if not isinstance(value, str):
                 value = str(value)
 
             table.add_row(key, value)

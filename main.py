@@ -135,8 +135,6 @@ class CLI:
 )
 def main(prompt, cwd:Path|None):
 
-
-
     try:
         config = load_config(cwd=cwd)
     except Exception as e:
