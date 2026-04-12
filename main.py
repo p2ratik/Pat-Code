@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from client.llm_client import LLMClient
 from agent.agent import Agent
 from agent.events import AgentEventType
@@ -15,8 +14,9 @@ console = get_console()
 class CLI:
     def __init__(self, config:Config):
         self.agent : Agent | None = None
-        self.tui = TUI(console)
         self.config = config
+        self.tui = TUI(console, config)
+
             
     async def run_single(self, message):
         async with Agent(self.config) as agent:
@@ -119,7 +119,7 @@ class CLI:
                     event.data.get("metadata"),
                     event.data.get("diff"),
                     event.data.get("truncated", False),
-                    event.data.get("exit_code"),
+                    # event.data.get("exit_code"),
                 )
 
         return final_response

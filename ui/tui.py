@@ -13,6 +13,7 @@ from rich.syntax import Syntax
 from rich.markdown import Markdown
 # from config.config import Config
 # from tools.base import ToolConfirmation
+from config.config import Config
 from utils.paths import display_path_rel_to_cwd
 from utils.text import truncate_text
 from rich.padding import Padding
@@ -55,11 +56,13 @@ def get_console()->Console:
     return _console
 
 class TUI:
-    def __init__(self, _console):
+    def __init__(self, _console, config:Config):
         self.console = _console
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._max_block_tokens = 2500
-        self.cwd = 'g/Projects/AIAgentFromScrach'
+        self.cwd = config.cwd
+        self.config = config
+        
         #self._assistant_stream_open = False
 
     def stream_assistant_delta(self, content):
@@ -280,7 +283,7 @@ class TUI:
         metadata: dict[str, Any] | None,
         diff: str | None,
         truncated: bool,
-        exit_code: int | None,
+        # exit_code: int | None,
     ) -> None:
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
         status_icon = "✓" if success else "✗"
@@ -342,7 +345,24 @@ class TUI:
                         theme="monokai",
                         word_wrap=False,
                     )
-                )    
+                )   
+        elif name in {"write_file", "edit"} and success and diff:
+            output_line = output.strip() if output.strip() else "Completed"
+            blocks.append(Text(output_line, style="muted"))
+            diff_text = diff
+            diff_display = truncate_text(
+                diff_text,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    diff_display,
+                    "diff",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )                    
         panel = Panel(
             Group(
                 *blocks,
@@ -357,4 +377,6 @@ class TUI:
         )
         self.console.print()
         self.console.print(panel)
+
+        # Have to add write file tool logic 
      
