@@ -499,7 +499,7 @@ class TUI:
 
         if truncated:
             blocks.append(Text("note: tool output was truncated", style="warning"))
-                                                   
+
         panel = Panel(
             Group(
                 *blocks,
@@ -515,5 +515,5 @@ class TUI:
         self.console.print()
         self.console.print(panel)
 
-        # Have to add write file tool logic 
+  
      

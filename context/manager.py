@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from config.config import Config
+from prompts.system import get_system_prompt
 from utils.text import count_tokens
 from typing import Any
 
@@ -32,7 +33,7 @@ class ContextManager:
         self._messages: list[MessageItem] = []
         self.config = config
         self._model_name = self.config.model_name
-        self._system_prompt = "youre a helpful AI agent that can use tools . When calling a tool , you must provide valid JSON arguments matching the schema."
+        self._system_prompt = get_system_prompt(config)
         pass
 
     def add_user_message(self, content:str)->None:
