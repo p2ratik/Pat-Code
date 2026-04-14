@@ -283,7 +283,7 @@ class TUI:
         metadata: dict[str, Any] | None,
         diff: str | None,
         truncated: bool,
-        # exit_code: int | None,
+        exit_code: int | None,
     ) -> None:
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
         status_icon = "✓" if success else "✗"
@@ -362,7 +362,144 @@ class TUI:
                     theme="monokai",
                     word_wrap=True,
                 )
-            )                    
+            )   
+        elif name == "shell" and success:
+            command = args.get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(Text(f"$ {command.strip()}", style="muted"))
+
+            if exit_code is not None:
+                blocks.append(Text(f"exit_code={exit_code}", style="muted"))
+
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )  
+        elif name == "web_search" and success:
+            results = metadata.get("results")
+            query = args.get("query")
+            summary = []
+            if isinstance(query, str):
+                summary.append(query)
+            if isinstance(results, int):
+                summary.append(f"{results} results")
+
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        elif name == "web_fetch" and success:
+            status_code = metadata.get("status_code")
+            content_length = metadata.get("content_length")
+            url = args.get("url")
+            summary = []
+            if isinstance(status_code, int):
+                summary.append(str(status_code))
+            if isinstance(content_length, int):
+                summary.append(f"{content_length} bytes")
+            if isinstance(url, str):
+                summary.append(url)
+
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        elif name == "todos" and success:
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        elif name == "memory" and success:
+            action = args.get("action")
+            key = args.get("key")
+            found = metadata.get("found")
+            summary = []
+            if isinstance(action, str) and action:
+                summary.append(action)
+            if isinstance(key, str) and key:
+                summary.append(key)
+            if isinstance(found, bool):
+                summary.append("found" if found else "missing")
+
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
+            blocks.append(
+                Syntax(
+                    output_display,
+                    "text",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+        else:
+            if error and not success:
+                blocks.append(Text(error, style="error"))
+
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            if output_display.strip():
+                blocks.append(
+                    Syntax(
+                        output_display,
+                        "text",
+                        theme="monokai",
+                        word_wrap=True,
+                    )
+                )
+            else:
+                blocks.append(Text("(no output)", style="muted"))
+
+        if truncated:
+            blocks.append(Text("note: tool output was truncated", style="warning"))
+                                                   
         panel = Panel(
             Group(
                 *blocks,

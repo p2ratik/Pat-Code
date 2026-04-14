@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from pydantic.json_schema import model_json_schema
 
+from config.config import Config
+
 class Toolkind(str, Enum):
     READ = "read"
     WRITE = "write"
@@ -101,8 +103,9 @@ class Tool(abc.ABC):
     description : str = "Base_Tool"
     kind : Toolkind.READ
 
-    def __init__(self):
+    def __init__(self, config: Config):
         super().__init__()
+        self.config = config
 
     @property
     def schema(self)-> dict[str, Any] | type['BaseModel']: # Pydantic for our custom schema and dict for mcp based 

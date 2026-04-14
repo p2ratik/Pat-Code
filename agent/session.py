@@ -24,7 +24,6 @@ class Session:
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
-
         self.turn_count = 0     
 
     def increment_turn(self) -> int:
