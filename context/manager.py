@@ -7,7 +7,7 @@ from typing import Any
 @dataclass
 class MessageItem:
     role : str
-    content: str
+    content: str | None
     token_count : int | None = None
     tool_call_id : str | None = None
     tool_calls : list[dict[str, Any]] = field(default_factory=list)
@@ -21,9 +21,11 @@ class MessageItem:
 
         if self.tool_calls:
             result['tool_calls'] = self.tool_calls    
-        if self.content:
-            result['content'] = self.content
-            # result['token'] = self.token_count
+
+        # Some providers reject null content for assistant/tool messages.
+        # Always serialize content as a string (empty when no text is present).
+        result['content'] = self.content if self.content is not None else ""
+        # result['token'] = self.token_count
 
         return result    
 
@@ -33,7 +35,7 @@ class ContextManager:
         self._messages: list[MessageItem] = []
         self.config = config
         self._model_name = self.config.model_name
-        self._system_prompt = get_system_prompt(config)
+        self._system_prompt = get_system_prompt(config=config)
         pass
 
     def add_user_message(self, content:str)->None:

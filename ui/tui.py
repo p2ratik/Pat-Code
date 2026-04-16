@@ -494,9 +494,6 @@ class TUI:
                         word_wrap=True,
                     )
                 )
-            else:
-                blocks.append(Text("(no output)", style="muted"))
-
         if truncated:
             blocks.append(Text("note: tool output was truncated", style="warning"))
 

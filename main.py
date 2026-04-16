@@ -54,14 +54,12 @@ class CLI:
         console.print("\n[dim]Goodbye![/dim]")                 
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
-        tool_kind = None
         tool = self.agent.session.tool_registry.get(tool_name)
         if not tool:
-            tool_kind = None
+            return None
 
-        tool_kind = tool.kind.value
-
-        return tool_kind
+        kind = getattr(tool, "kind", None)
+        return getattr(kind, "value", None)
     
     # Runs only once .
     async def _process_message(self, message : str | None = None):

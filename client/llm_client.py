@@ -8,7 +8,6 @@ from client.response import StreamEvent
 from config.config import Config
 import os
 
-\
 class LLMClient():
 
     def __init__(self, config:Config):
@@ -61,6 +60,7 @@ class LLMClient():
         kwargs = {
             "model":self.config.model_name,
             "messages": messages,
+            "temperature": self.config.temperature,
             "stream":stream
         }
 
@@ -80,7 +80,7 @@ class LLMClient():
             yield StreamEvent(
                 type = StreamEventType.ERROR,
                 finish_reason= "Error",
-                error = e
+                error = str(e)
             )        
 
     async def _stream_response(self, client, kwargs)->AsyncGenerator[StreamEvent]:
@@ -97,11 +97,16 @@ class LLMClient():
         async for chunk in response:
 
             if hasattr(chunk, "usage") and chunk.usage:
+                cached_tokens = 0
+                prompt_details = getattr(chunk.usage, "prompt_tokens_details", None)
+                if prompt_details and getattr(prompt_details, "cached_tokens", None) is not None:
+                    cached_tokens = prompt_details.cached_tokens
+
                 usage = TokenUsage(
                     prompt_tokens=chunk.usage.prompt_tokens,
                     completion_tokens=chunk.usage.completion_tokens,
                     total_tokens=chunk.usage.total_tokens,
-                    cached_tokens=chunk.usage.prompt_tokens_details.cached_tokens,
+                    cached_tokens=cached_tokens,
                 )
 
             if not chunk.choices:
@@ -189,10 +194,16 @@ class LLMClient():
             text_delta = TextDelta(content=message.content)
 
         if response.usage:
+            cached_tokens = 0
+            prompt_details = getattr(response.usage, "prompt_tokens_details", None)
+            if prompt_details and getattr(prompt_details, "cached_tokens", None) is not None:
+                cached_tokens = prompt_details.cached_tokens
+
             usage = TokenUsage(
                 prompt_tokens=response.usage.prompt_tokens,
-                completion_token=response.usage.completion_tokens,
-                total_tokens=response.usage.prompt_tokens_details.cached_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+                cached_tokens=cached_tokens,
             )
 
         return StreamEvent(

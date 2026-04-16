@@ -53,7 +53,7 @@ class Agent:
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
                         response += event.text_delta.content
-                        yield AgentEvent.text_delta(content=response)
+                        yield AgentEvent.text_delta(content=event.text_delta.content)
 
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
