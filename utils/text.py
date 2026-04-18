@@ -1,13 +1,16 @@
 import tiktoken
 
-def get_tokenizer(model:str):
+def get_tokenizer(model: str):
     try:
-        # tokenizing for the specific model
-        encoding = tiktoken.get_encoding(model)
+        # Try the specific model first, fall back to cl100k_base (GPT-4)
+        try:
+            encoding = tiktoken.get_encoding(model)
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
         return encoding.encode
-    except:
-        encoding = tiktoken.get_encoding('cl100k_base') # Gpt 4 fallback
-        return encoding.encode 
+    except Exception:
+        # tiktoken data files unavailable (e.g. frozen exe without --collect-data tiktoken)
+        return None
 
 def estimate_tokens(text:str):
     if text:

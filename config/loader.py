@@ -2,7 +2,10 @@ from pathlib import Path
 from typing import Any
 
 from platformdirs import user_config_dir, user_data_dir  # One is fo rgetiing the root folder and another for storing sessions , logs etc
-import tomli
+try:
+    import tomllib  # stdlib, Python 3.11+
+except ImportError:
+    import tomli as tomllib  # fallback for Python < 3.11
 
 from config.config import Config
 from utils.errors import ConfigError
@@ -28,8 +31,8 @@ def get_system_config_path() -> Path:
 def _parse_toml(path: Path):
     try:
         with open(path, "rb") as f:
-            return tomli.load(f)
-    except tomli.TOMLDecodeError as e:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
         raise ConfigError("Invalid TOML in {path}: {e}", config_file=str(path)) from e
     except (OSError, IOError) as e:
         raise ConfigError(

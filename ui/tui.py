@@ -22,24 +22,24 @@ import re
 AGENT_THEME = Theme(
     {
         # General
-        "info": "cyan",
-        "warning": "yellow",
+        "info": "bold bright_cyan",
+        "warning": "bold yellow",
         "error": "bright_red bold",
-        "success": "green",
+        "success": "bold bright_green",
         "dim": "dim",
         "muted": "grey50",
         "border": "grey35",
-        "highlight": "bold cyan",
+        "highlight": "bold bright_green",
         # Roles
-        "user": "bright_blue bold",
+        "user": "bold bright_green",
         "assistant": "bright_white",
         # Tools
-        "tool": "bright_magenta bold",
-        "tool.read": "cyan",
-        "tool.write": "yellow",
-        "tool.shell": "magenta",
+        "tool": "bold bright_yellow",
+        "tool.read": "bright_cyan",
+        "tool.write": "bright_yellow",
+        "tool.shell": "bright_magenta",
         "tool.network": "bright_blue",
-        "tool.memory": "green",
+        "tool.memory": "bright_green",
         "tool.mcp": "bright_cyan",
         # Code / blocks
         "code": "white",
@@ -70,7 +70,7 @@ class TUI:
 
     def begin_assistant(self)-> None:
         self.console.print()
-        self.console.print(Rule(Text("assistant", style="assistant")))
+        self.console.print(Rule(Text("Assistant", style="assistant")))
         #self._assistant_stream_open = True
 
     def end_assistant(self):
@@ -224,53 +224,63 @@ class TUI:
             ".sql": "sql",
         }.get(suffix, "text")
 
-    def print_welcome(self, title: str, version: str, cwd: str) -> None:
-        PAT_ASCII = """
-    ██████╗  █████╗ ████████╗
-    ██╔══██╗██╔══██╗╚══██╔══╝
-    ██████╔╝███████║   ██║   
-    ██╔═══╝ ██╔══██║   ██║   
-    ██║     ██║  ██║   ██║   
-    ╚═╝     ╚═╝  ╚═╝   ╚═╝   """.strip()
-
-        # Top bracket frame with title and ASCII logo
-        header = Table.grid(padding=(0, 2))
-        header.add_column(justify="left", ratio=2)
-        header.add_column(justify="right", ratio=1)
-
-        left = Text()
-        left.append("Welcome to\n", style="bold dim white")
-        left.append(PAT_ASCII + "\n", style="bold cyan")
-        left.append(f"\n  CLI Version {version}", style="bold white")
-
-        right = Text()
-        right.append("◈", style="bold magenta")  # decorative glyph as mascot placeholder
-
-        header.add_row(left, right)
-
-        # Corner-bracket panel (Copilot style)
-        top_rule    = Text("┌" + "─" * 48 + "┐", style="dim cyan")
-        bottom_rule = Text("└" + "─" * 48 + "┘", style="dim cyan")
-
-        # Info section below
-        info = Text()
-        info.append(f"\nVersion {version}  ·  your free coding partner\n\n", style="bold white")
-        info.append(f"● ", style="bold cyan")
-        info.append(f"cwd : {cwd}\n", style="white")
-
-        full = Group(
-            top_rule,
-            Padding(header, (0, 2)),
-            bottom_rule,
-            info,
+    def print_welcome(self, title: str, version: str, cwd: str, model: str = "") -> None:
+        # Title logo
+        PAT_ASCII = (
+            " ██████╗  █████╗ ████████╗",
+            " ██╔══██╗██╔══██╗╚══██╔══╝",
+            " ██████╔╝███████║   ██║   ",
+            " ██╔═══╝ ██╔══██║   ██║   ",
+            " ██║     ██║  ██║   ██║   ",
+            " ╚═╝     ╚═╝  ╚═╝   ╚═╝  ",
         )
 
+        # ── logo + meta info ───────────────────────────────────────────
+        header = Text()
+        header.append("  Welcome to\n", style="bold dim white")
+        for logo_line in PAT_ASCII:
+            header.append(logo_line + "\n", style="bold bright_green")
+        header.append("\n")
+        header.append("  v" + version, style="bold green")
+        header.append("   your intelligent coding partner\n", style="dim white")
+
+        # ── divider ─────────────────────────────────────────────────────
+        divider = Text("─" * 56, style="dim green")
+
+        # ── info strip ──────────────────────────────────────────────────
+        info = Text()
+        info.append("  ● ", style="bold bright_green")
+        info.append("model", style="dim white")
+        info.append(" : ", style="dim green")
+        info.append((model or self.config.model_name) + "\n", style="bold white")
+        info.append("  ● ", style="bold bright_green")
+        info.append("cwd  ", style="dim white")
+        info.append(" : ", style="dim green")
+        info.append(str(cwd) + "\n", style="white")
+
+        # ── hint strip ──────────────────────────────────────────────────
+        hint = Text()
+        hint.append("  type your message and press Enter  ", style="dim white")
+        hint.append("·", style="dim green")
+        hint.append("  Ctrl+C to interrupt", style="dim white")
+
+        full = Group(
+            Padding(header, (1, 1, 0, 1)),
+            Padding(divider, (0, 1)),
+            Padding(info,   (0, 1)),
+            Padding(hint,   (0, 1, 1, 1)),
+        )
+
+        self.console.print()
         self.console.print(Panel(
             full,
-            border_style="bright_black",
-            box=box.MINIMAL,
-            padding=(0, 1),
+            border_style="green",
+            box=box.HEAVY,
+            padding=(0, 0),
+            subtitle=Text(f" {title} ", style="bold bright_green"),
+            subtitle_align="right",
         ))
+        self.console.print()
 
     def tool_call_complete(
         self,

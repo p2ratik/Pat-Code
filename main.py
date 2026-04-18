@@ -30,6 +30,7 @@ class CLI:
                 title="PAT",
                 version="0.0.1",
                 cwd=self.config.cwd,
+                model=self.config.model_name,
             )
             self.agent = agent
 
