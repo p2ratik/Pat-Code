@@ -9,6 +9,7 @@ from tools.builtins.todo import TodosTool
 from tools.builtins.web_fetch import WebFetchTool
 from tools.builtins.web_search import WebSearchTool
 from tools.builtins.write_file import WriteFileTool
+from apply_patch import ApplyPatchTool
 
 __all__ = [
     "ReadFileTool",
@@ -22,6 +23,7 @@ __all__ = [
     "WebFetchTool",
     "TodosTool",
     "MemoryTool",
+    "ApplyPatchTool",
 ]
 
 
@@ -38,4 +40,5 @@ def get_all_builtin_tools() -> list[type]:
         WebFetchTool,
         TodosTool,
         MemoryTool,
+        ApplyPatchTool,
     ]

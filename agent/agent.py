@@ -7,9 +7,10 @@ from agent.session import Session
 from client.llm_client import LLMClient
 from client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage
 from config.config import Config
-from context.manager import ContextManager
 from tools.registry import create_default_registry
 from pathlib import Path
+from db.database import Columns
+from utils.text import count_tokens
 
 class Agent:
     def __init__(self, config:Config):
@@ -21,6 +22,11 @@ class Agent:
         yield AgentEvent.agent_start(message=message)
 
         self.session.context_manager.add_user_message(content=message)
+        self.session.db_manager.add_msg_to_db(Columns(session_id=self.session.session_id, 
+                                                      role="user",
+                                                      content=message,
+                                                      token=count_tokens(self.session.config.model_name, message)))
+
         final_response = ""
         async for event in self._agentic_loop():
             yield event
@@ -132,7 +138,7 @@ class Agent:
                     tool_call.arguments,
                     self.config.cwd,
                     # self.session.hook_system,
-                    # self.session.approval_manager,
+                    self.session.approval_manager,
                 )
 
                 yield AgentEvent.tool_call_complete(
@@ -154,6 +160,12 @@ class Agent:
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
+                self.session.db_manager.add_msg_to_db(Columns(session_id = self.session.session_id,
+                                                           role = "tool",
+                                                           content = tool_result.content,
+                                                           token = count_tokens(self.session.config.model_name, tool_result.content),
+                                                           tool_call_id = tool_result.tool_call_id,
+                                                           ))
 
             # loop_detection_error = self.session.loop_detector.check_for_loop()
             # if loop_detection_error:

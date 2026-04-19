@@ -8,10 +8,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from tools.base import (
-    FileDiff,
     ToolConfirmation,
     ToolInvocation,
-    ToolKind,
+    Toolkind,
     ToolResult,
     Tool,
 )
@@ -88,12 +87,13 @@ class ApplyPatchTool(Tool):
         "*** Delete File: path - deletes the file\n"
         "*** Rename File: old -> new - renames/moves a file"
     )
-    kind = ToolKind.WRITE
+    kind = Toolkind.WRITE
     schema = ApplyPatchParams
 
     PATCH_START = re.compile(r"^\*\*\*\s*Begin\s+Patch\s*$", re.IGNORECASE)
     PATCH_END = re.compile(r"^\*\*\*\s*End\s+Patch\s*$", re.IGNORECASE)
     UPDATE_FILE = re.compile(r"^\*\*\*\s*Update\s+File:\s*(.+)$", re.IGNORECASE)
+    ADD_FILE = re.compile(r"^\*\*\*\s*Add\s+File:\s*(.+)$", re.IGNORECASE)
     CREATE_FILE = re.compile(r"^\*\*\*\s*Create\s+File:\s*(.+)$", re.IGNORECASE)
     DELETE_FILE = re.compile(r"^\*\*\*\s*Delete\s+File:\s*(.+)$", re.IGNORECASE)
     RENAME_FILE = re.compile(r"^\*\*\*\s*Rename\s+File:\s*(.+)\s*->\s*(.+)$", re.IGNORECASE)
@@ -130,11 +130,11 @@ class ApplyPatchTool(Tool):
             if match := self.UPDATE_FILE.match(line):
                 path = resolve_path(cwd, match.group(1).strip())
                 i += 1
-                op, i, err = self._parse_update(lines, i, path)
+                ops, i, err = self._parse_update(lines, i, path)
                 if err:
                     errors.append(err)
-                elif op:
-                    operations.append(op)
+                else:
+                    operations.extend(ops)
 
             elif match := self.CREATE_FILE.match(line):
                 path = resolve_path(cwd, match.group(1).strip())
@@ -145,6 +145,21 @@ class ApplyPatchTool(Tool):
                         action=PatchAction.CREATE,
                         path=path,
                         content=content,
+                    )
+                )
+
+            elif match := self.ADD_FILE.match(line):
+                path = resolve_path(cwd, match.group(1).strip())
+                i += 1
+                content, i = self._read_until_next_operation(lines, i)
+                content_lines = [
+                    ln[1:] if ln.startswith("+") else ln for ln in content.splitlines()
+                ]
+                operations.append(
+                    PatchOperation(
+                        action=PatchAction.CREATE,
+                        path=path,
+                        content="\n".join(content_lines),
                     )
                 )
 
@@ -180,31 +195,73 @@ class ApplyPatchTool(Tool):
         lines: list[str],
         start: int,
         path: Path,
-    ) -> tuple[PatchOperation | None, int, str | None]:
-        """Parse an update operation's search/replace block."""
+    ) -> tuple[list[PatchOperation], int, str | None]:
+        """Parse an update operation in either SEARCH/REPLACE or @@ +/- style."""
+        block_lines, i = self._read_update_block(lines, start)
+
+        if any(self.SEARCH_START.match(line.strip()) for line in block_lines):
+            op, err = self._parse_search_replace_update(block_lines, path)
+            if err:
+                return [], i, err
+            return ([op] if op else []), i, None
+
+        ops, err = self._parse_diff_style_update(block_lines, path)
+        if err:
+            return [], i, err
+
+        return ops, i, None
+
+    def _read_update_block(
+        self,
+        lines: list[str],
+        start: int,
+    ) -> tuple[list[str], int]:
+        """Read update body until next operation directive or patch end."""
+        block: list[str] = []
         i = start
 
-        while i < len(lines) and not self.SEARCH_START.match(lines[i].strip()):
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if (
+                self.UPDATE_FILE.match(stripped)
+                or self.ADD_FILE.match(stripped)
+                or self.CREATE_FILE.match(stripped)
+                or self.DELETE_FILE.match(stripped)
+                or self.RENAME_FILE.match(stripped)
+                or self.PATCH_END.match(stripped)
+            ):
+                break
+            block.append(lines[i])
             i += 1
-        if i >= len(lines):
-            return None, i, f"Missing <<<<<<< SEARCH for {path}"
+
+        return block, i
+
+    def _parse_search_replace_update(
+        self,
+        block_lines: list[str],
+        path: Path,
+    ) -> tuple[PatchOperation | None, str | None]:
+        i = 0
+        while i < len(block_lines) and not self.SEARCH_START.match(block_lines[i].strip()):
+            i += 1
+        if i >= len(block_lines):
+            return None, f"Missing <<<<<<< SEARCH for {path}"
         i += 1
 
         search_lines = []
-        while i < len(lines) and not self.SEPARATOR.match(lines[i].strip()):
-            search_lines.append(lines[i])
+        while i < len(block_lines) and not self.SEPARATOR.match(block_lines[i].strip()):
+            search_lines.append(block_lines[i])
             i += 1
-        if i >= len(lines):
-            return None, i, f"Missing ======= separator for {path}"
+        if i >= len(block_lines):
+            return None, f"Missing ======= separator for {path}"
         i += 1
 
         replace_lines = []
-        while i < len(lines) and not self.REPLACE_END.match(lines[i].strip()):
-            replace_lines.append(lines[i])
+        while i < len(block_lines) and not self.REPLACE_END.match(block_lines[i].strip()):
+            replace_lines.append(block_lines[i])
             i += 1
-        if i >= len(lines):
-            return None, i, f"Missing >>>>>>> REPLACE for {path}"
-        i += 1
+        if i >= len(block_lines):
+            return None, f"Missing >>>>>>> REPLACE for {path}"
 
         search_content = "\n".join(search_lines)
         replace_content = "\n".join(replace_lines)
@@ -215,8 +272,65 @@ class ApplyPatchTool(Tool):
                 path=path,
                 content=f"{search_content}\x00{replace_content}",
             ),
-            i,
             None,
+        )
+
+    def _parse_diff_style_update(
+        self,
+        block_lines: list[str],
+        path: Path,
+    ) -> tuple[list[PatchOperation], str | None]:
+        """Parse hunks with optional @@ markers and +/- line prefixes."""
+        operations: list[PatchOperation] = []
+        old_lines: list[str] = []
+        new_lines: list[str] = []
+        has_changes = False
+
+        def commit_hunk() -> None:
+            nonlocal old_lines, new_lines, has_changes
+            if not has_changes:
+                old_lines = []
+                new_lines = []
+                return
+            operations.append(
+                PatchOperation(
+                    action=PatchAction.UPDATE,
+                    path=path,
+                    content=f"{'\\n'.join(old_lines)}\x00{'\\n'.join(new_lines)}",
+                )
+            )
+            old_lines = []
+            new_lines = []
+            has_changes = False
+
+        for raw_line in block_lines:
+            stripped = raw_line.strip()
+
+            if stripped.startswith("@@"):
+                commit_hunk()
+                continue
+
+            if stripped.startswith("---") or stripped.startswith("+++"):
+                continue
+
+            if raw_line.startswith("-"):
+                old_lines.append(raw_line[1:])
+                has_changes = True
+            elif raw_line.startswith("+"):
+                new_lines.append(raw_line[1:])
+                has_changes = True
+            else:
+                old_lines.append(raw_line)
+                new_lines.append(raw_line)
+
+        commit_hunk()
+
+        if operations:
+            return operations, None
+
+        return [], (
+            f"No valid update hunks found for {path}. Expected either SEARCH/REPLACE "
+            "or @@ with +/- lines."
         )
 
     def _read_until_next_operation(
@@ -234,6 +348,7 @@ class ApplyPatchTool(Tool):
 
             if (
                 self.UPDATE_FILE.match(stripped)
+                or self.ADD_FILE.match(stripped)
                 or self.CREATE_FILE.match(stripped)
                 or self.DELETE_FILE.match(stripped)
                 or self.RENAME_FILE.match(stripped)
@@ -357,7 +472,8 @@ class ApplyPatchTool(Tool):
         if search not in content:
             return f"ERROR: Search content not found in {op.path}"
 
-        new_content = content.replace(search, replace)
+        # Apply the replacement once to avoid accidental broad rewrites.
+        new_content = content.replace(search, replace, 1)
 
         if not dry_run:
             op.path.write_text(new_content, encoding="utf-8")
