@@ -1,10 +1,10 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 import os
-
 
 
 class ModelConfig(BaseModel):
@@ -20,6 +20,35 @@ class ShellEnvironmentPolicy(BaseModel):
     )
     set_vars: dict[str, str] = Field(default_factory=dict)
 
+class MCPServerConfig(BaseModel):
+    enabled: bool = True
+    startup_timeout_sec: float = 10
+
+    # stdio transport
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: Path | None = None
+
+    # http/sse transport
+    url: str | None = None
+    
+    @model_validator(mode="after")
+    def validate_transport(self) -> MCPServerConfig:
+        has_command = self.command is not None
+        has_url = self.url is not None
+
+        if not has_command and not has_url:
+            raise ValueError(
+                "MCP Server must have either 'command' (stdio) or 'url' (http/sse)"
+            )
+
+        if has_command and has_url:
+            raise ValueError(
+                "MCP Server cannot have both 'command' (stdio) and 'url' (http/sse)"
+            )
+
+        return self    
 @dataclass
 class SubagentDefinition:
     name: str
@@ -36,6 +65,7 @@ class Config(BaseModel):
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy
     )    
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
     allowed_tools: list[str] | None = Field(
         None,

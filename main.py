@@ -33,6 +33,7 @@ class CLI:
                 model=self.config.model_name,
             )
             self.agent = agent
+            self._print_mcp_snapshot()
 
             while True:
                 try:
@@ -40,11 +41,11 @@ class CLI:
                     if not user_input:
                         continue
 
-                    # if user_input.startswith("/"):
-                    #     should_continue = await self._handle_command(user_input)
-                    #     if not should_continue:
-                    #         break
-                    #     continue
+                    if user_input.startswith("/"):
+                        should_continue = await self._handle_command(user_input)
+                        if not should_continue:
+                            break
+                        continue
 
                     await self._process_message(user_input)
                 except KeyboardInterrupt:
@@ -61,6 +62,34 @@ class CLI:
 
         kind = getattr(tool, "kind", None)
         return getattr(kind, "value", None)
+
+    def _print_mcp_snapshot(self) -> None:
+        if not self.agent:
+            return
+
+        servers = self.agent.session.mcp_manager.get_all_servers()
+        mcp_tool_names = sorted(
+            [tool.name for tool in self.agent.session.tool_registry.connected_mcp_servers]
+        )
+        self.tui.print_mcp_status(servers, mcp_tool_names)
+
+    async def _handle_command(self, command: str) -> bool:
+        cmd = command.strip().lower()
+
+        if cmd in {"/exit", "/quit"}:
+            return False
+
+        if cmd == "/mcp":
+            self._print_mcp_snapshot()
+            return True
+
+        if cmd == "/help":
+            console.print("[dim]Commands: /mcp, /help, /exit[/dim]")
+            return True
+
+        console.print(f"[warning]Unknown command: {command}[/warning]")
+        console.print("[dim]Use /help to see available commands[/dim]")
+        return True
     
     # Runs only once .
     async def _process_message(self, message : str | None = None):

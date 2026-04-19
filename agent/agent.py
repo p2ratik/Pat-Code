@@ -5,7 +5,7 @@ from agent.events import AgentEvent
 from agent.events import AgentEventType
 from agent.session import Session
 from client.llm_client import LLMClient
-from client.response import StreamEventType, ToolCall, ToolResultMessage
+from client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage
 from config.config import Config
 from context.manager import ContextManager
 from tools.registry import create_default_registry
@@ -38,56 +38,81 @@ class Agent:
         # The context manager will handle user and assistant messages
         max_turns = self.config.max_turns
 
-        tool_schemas = self.session.tool_registry.get_schemas()
-
         for _ in range(max_turns):
+            self.session.increment_turn()
             response = ""
+
+            # check for context overflow
+            if self.session.context_manager.needs_compression():
+                summary, usage = await self.session.chat_compactor.compress(
+                    self.session.context_manager
+                )
+
+                # Summarizing the previous conversation . Note that the context is already prunned from the prune tool result function 
+                if summary:
+                    self.session.context_manager.replace_with_summary(summary)
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
+
+            tool_schemas = self.session.tool_registry.get_schemas()
+
             tool_calls: list[ToolCall] = []
+            usage: TokenUsage | None = None
 
             # If all tool calls are executed or no tool calls are left the agentic loop will break out
             async for event in self.session.client.chat_completion(
-                messages=self.session.context_manager.get_messages(),
+                self.session.context_manager.get_messages(),
                 tools=tool_schemas if tool_schemas else None,
-                stream=True,
             ):
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
-                        response += event.text_delta.content
-                        yield AgentEvent.text_delta(content=event.text_delta.content)
-
+                        content = event.text_delta.content
+                        response += content
+                        yield AgentEvent.text_delta(content)
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
-                        tool_calls.append(event.tool_call)  # ToolCall object
-
+                        tool_calls.append(event.tool_call)
                 elif event.type == StreamEventType.ERROR:
-                    yield AgentEvent.agent_error(error=event.error or "Unknown error")
+                    yield AgentEvent.agent_error(
+                        event.error or "Unknown error occurred.",
+                    )
+                elif event.type == StreamEventType.MESSAGE_COMPLETE:
+                    usage = event.usage
 
-            # Record the assistant message, including tool_calls if any
-            assistant_tool_calls: list[dict[str, Any]] = []
-            for tool_call in tool_calls:
-                assistant_tool_calls.append(
-                    {
-                        "id": tool_call.call_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_call.name,
-                            "arguments": json.dumps(tool_call.arguments),
-                        },
-                    }
-                )
-            # storing tool calls on the assistant message so the model can link tool results correctly
             self.session.context_manager.add_assistant_message(
-                content=response or None,
-                tool_calls=assistant_tool_calls if assistant_tool_calls else None,
+                response or None,
+                (
+                    [
+                        {
+                            "id": tc.call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": str(tc.arguments),
+                            },
+                        }
+                        for tc in tool_calls
+                    ]
+                    if tool_calls
+                    else None
+                ),
             )
-
             if response:
                 yield AgentEvent.text_complete(response)
+                # self.session.loop_detector.record_action(
+                #     "response",
+                #     text=response,
+                # )
 
             if not tool_calls:
-                break
+                if usage:
+                    self.session.context_manager.set_latest_usage(usage)
+                    self.session.context_manager.add_usage(usage)
 
-            tool_call_result: list[ToolResultMessage] = []
+                self.session.context_manager.prune_tool_outputs()
+                return
+
+            tool_call_results: list[ToolResultMessage] = []
 
             for tool_call in tool_calls:
                 yield AgentEvent.tool_call_start(
@@ -96,10 +121,18 @@ class Agent:
                     tool_call.arguments,
                 )
 
+                # self.session.loop_detector.record_action(
+                #     "tool_call",
+                #     tool_name=tool_call.name,
+                #     args=tool_call.arguments,
+                # )
+
                 result = await self.session.tool_registry.invoke(
                     tool_call.name,
                     tool_call.arguments,
-                    Path.cwd(),
+                    self.config.cwd,
+                    # self.session.hook_system,
+                    # self.session.approval_manager,
                 )
 
                 yield AgentEvent.tool_call_complete(
@@ -108,7 +141,7 @@ class Agent:
                     result,
                 )
 
-                tool_call_result.append(
+                tool_call_results.append(
                     ToolResultMessage(
                         tool_call_id=tool_call.call_id,
                         content=result.to_model_output(),
@@ -116,17 +149,31 @@ class Agent:
                     )
                 )
 
-            for tool_result in tool_call_result:
+            for tool_result in tool_call_results:
                 self.session.context_manager.add_tool_result(
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
 
+            # loop_detection_error = self.session.loop_detector.check_for_loop()
+            # if loop_detection_error:
+            #     loop_prompt = create_loop_breaker_prompt(loop_detection_error)
+            #     self.session.context_manager.add_user_message(loop_prompt)
+
+            if usage:
+                self.session.context_manager.set_latest_usage(usage)
+                self.session.context_manager.add_usage(usage)
+
+            self.session.context_manager.prune_tool_outputs()
+        yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
+
 
     async def __aenter__(self):
+        await self.session.initialize()        
         return self
     
     async def __aexit__(self, exc_type, exc, tb):
-        if self.session and self.session.client:
+        if self.session and self.session.client and self.session.mcp_manager:
             await self.session.client.close()
-            self.session.client = None
+            await self.session.mcp_manager.shutdown()
+            self.session = None

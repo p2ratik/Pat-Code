@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from platformdirs import user_config_dir, user_data_dir  # One is fo rgetiing the root folder and another for storing sessions , logs etc
+from platformdirs import user_config_dir, user_data_dir  # One is for getiing the root folder and another for storing sessions , logs etc
 try:
     import tomllib  # stdlib, Python 3.11+
 except ImportError:
@@ -33,10 +33,10 @@ def _parse_toml(path: Path):
         with open(path, "rb") as f:
             return tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError("Invalid TOML in {path}: {e}", config_file=str(path)) from e
+        raise ConfigError(f"Invalid TOML in {path}: {e}", config_file=str(path)) from e
     except (OSError, IOError) as e:
         raise ConfigError(
-            "Failed to read config file {path}: {e}", config_file=str(path)
+            f"Failed to read config file {path}: {e}", config_file=str(path)
         ) from e
 
 def _get_project_config(cwd: Path) -> Path | None:
@@ -77,6 +77,16 @@ def _merge_dicts(base : dict[str, Any], override : dict[str, Any]) -> dict[str, 
 
     return result            
 
+
+def _normalize_config_dict(config_dict: dict[str, Any]) -> dict[str, Any]:
+    model_config = config_dict.get("model")
+    if isinstance(model_config, dict):
+        # Backward compatibility: accept model.model_name in config TOML.
+        if "name" not in model_config and "model_name" in model_config:
+            model_config["name"] = model_config.pop("model_name")
+
+    return config_dict
+
 def load_config(cwd: Path | None) -> Config:
     cwd = cwd or Path.cwd()
 
@@ -98,8 +108,12 @@ def load_config(cwd: Path | None) -> Config:
         try:
             project_config_dict = _parse_toml(project_path)
             config_dict = _merge_dicts(config_dict, project_config_dict)
-        except ConfigError:
-            logger.warning(f"Skipping invalid system config: {system_path}")     
+        except ConfigError as e:
+            raise ConfigError(
+                f"Invalid project config file: {project_path}",
+                config_file=str(project_path),
+                cause=e,
+            ) from e
 
     if "cwd" not in config_dict:
         config_dict["cwd"] = cwd
@@ -108,6 +122,8 @@ def load_config(cwd: Path | None) -> Config:
         agent_md_content = _get_agent_md_files(cwd)
         if agent_md_content:
             config_dict["developer_instructions"] = agent_md_content
+
+    config_dict = _normalize_config_dict(config_dict)
 
     try:
         config = Config(**config_dict)

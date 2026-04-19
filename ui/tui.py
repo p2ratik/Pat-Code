@@ -241,7 +241,7 @@ class TUI:
         for logo_line in PAT_ASCII:
             header.append(logo_line + "\n", style="bold bright_green")
         header.append("\n")
-        header.append("  v" + version, style="bold green")
+        header.append("  v-" + version, style="bold green")
         header.append("   your intelligent coding partner\n", style="dim white")
 
         # ── divider ─────────────────────────────────────────────────────
@@ -281,6 +281,52 @@ class TUI:
             subtitle_align="right",
         ))
         self.console.print()
+
+    def print_mcp_status(
+        self,
+        servers: list[dict[str, Any]],
+        mcp_tool_names: list[str],
+    ) -> None:
+        if not servers:
+            self.console.print("[muted]MCP: no servers configured[/muted]")
+            return
+
+        table = Table(box=box.ROUNDED, border_style="border", show_header=True)
+        table.add_column("Server", style="bold")
+        table.add_column("Status")
+        table.add_column("Tools", justify="right")
+
+        for server in servers:
+            name = str(server.get("name", "unknown"))
+            status = str(server.get("status", "unknown"))
+            tools = str(server.get("tools", 0))
+
+            if status == "connected":
+                status_text = Text(status, style="success")
+            elif status == "error":
+                status_text = Text(status, style="error")
+            elif status == "connecting":
+                status_text = Text(status, style="warning")
+            else:
+                status_text = Text(status, style="muted")
+
+            table.add_row(name, status_text, tools)
+
+        caption = (
+            "\n[muted]MCP tools:[/muted] " + ", ".join(mcp_tool_names)
+            if mcp_tool_names
+            else "\n[muted]MCP tools: none loaded[/muted]"
+        )
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                Group(table, Text.from_markup(caption)),
+                title=Text("MCP Status", style="tool.mcp"),
+                border_style="tool.mcp",
+                box=box.ROUNDED,
+            )
+        )
 
     def tool_call_complete(
         self,

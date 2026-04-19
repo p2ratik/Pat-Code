@@ -1,3 +1,25 @@
 [model]
-model_name = gpt-4o
+name = "z-ai/glm-4.5-air:free"
 temperature = 0.8
+
+[[user_subagents]]
+name = "SECURITY_ANALYST"
+description = "Searches for hardcoded API keys in the codebase"
+goal_prompt = "You are a security analyst. Your only task is to search the repository for hardcoded API keys, tokens, and secrets, then report file paths and matching lines. Do not modify files. You have 19 max turns"
+allowed_tools = ["grep", "glob", "read_file", "list_dir"]
+max_turns = 20
+timeout_seconds = 120
+
+[mcp_servers.test_filesystem]
+enabled = true
+startup_timeout_sec = 60
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+env = {}
+cwd = "."
+
+[mcp_servers.test_url]
+enabled = true
+startup_timeout_sec = 60
+url = "http://127.0.0.1:8000/mcp"
+
