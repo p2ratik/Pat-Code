@@ -31,7 +31,7 @@ BLOCKED_COMMANDS = {
 class ShellParams(BaseModel):
     command: str = Field(..., description="The shell command to execute")
     timeout: int = Field(
-        120, ge=1, le=600, description="Timeout in seconds (default: 120)"
+        10, ge=1, le=20, description="Timeout in seconds (default: 120)"
     )
     cwd: str | None = Field(None, description="Working directory for the command")
 
@@ -89,11 +89,10 @@ class ShellTool(Tool):
 
         env = self._build_environment()
         if sys.platform == "win32":
-            shell_cmd = ["cmd.exe", "/c", params.command]    # For windows
+            shell_cmd = ["cmd.exe", "/c", params.command]
         else:
-            shell_cmd = ["/bin/bash", "-c", params.command]  # UNIX based OS [Mac / Linux]
+            shell_cmd = ["/bin/bash", "-c", params.command]
 
-        # subprocess
         process = await asyncio.create_subprocess_exec(
             *shell_cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -103,42 +102,78 @@ class ShellTool(Tool):
             start_new_session=True,
         )
 
+        async def _read_stream(stream: asyncio.StreamReader, buffer: list[str]) -> None:
+            max_bytes = 50 * 1024
+            collected = 0
+            while True:
+                try:
+                    line = await stream.readline()
+                except Exception:
+                    break
+                if not line:
+                    break
+                decoded = line.decode("utf-8", errors="replace")
+                buffer.append(decoded)
+                collected += len(decoded)
+                if collected >= max_bytes:
+                    buffer.append("... [stream truncated]\n")
+                    break
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
         try:
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(),
+            await asyncio.wait_for(
+                asyncio.gather(
+                    _read_stream(process.stdout, stdout_lines),
+                    _read_stream(process.stderr, stderr_lines),
+                ),
                 timeout=params.timeout,
             )
-        except asyncio.TimeoutError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)  # UNIX
-            else:
-                process.kill()                                      # Windows
+            # Process exited within the timeout window
             await process.wait()
-            return ToolResult.error_result(f"Command timed out after {params.timeout}s")
+            exit_code = process.returncode
+            still_running = False
 
-        stdout = stdout_data.decode("utf-8", errors="replace")
-        stderr = stderr_data.decode("utf-8", errors="replace")
-        exit_code = process.returncode
+        except asyncio.TimeoutError:
+            # Process is still alive — normal for servers
+            exit_code = None
+            still_running = True
 
-        output = ""
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+
+        # Build output
+        output_parts: list[str] = []
+
         if stdout.strip():
-            output += stdout.rstrip()
+            output_parts.append(stdout.rstrip())
 
         if stderr.strip():
-            output += "\n--- stderr ---\n"
-            output += stderr.rstrip()
+            output_parts.append("--- stderr ---")
+            output_parts.append(stderr.rstrip())
 
-        if exit_code != 0:
-            output += f"\nExit code: {exit_code}"
+        if still_running:
+            output_parts.append(f"--- process still running (pid={process.pid}) ---")
+        elif exit_code != 0:
+            output_parts.append(f"Exit code: {exit_code}")
+
+        output = "\n".join(output_parts)
 
         if len(output) > 100 * 1024:
             output = output[: 100 * 1024] + "\n... [output truncated]"
 
+        success = still_running or exit_code == 0
+
         return ToolResult(
-            success=exit_code == 0,
+            success=success,
             output=output,
-            error=stderr if exit_code != 0 else None,
+            error=None if still_running else (stderr if exit_code != 0 else None),
             exit_code=exit_code,
+            metadata={
+                "still_running": still_running,
+                "pid": process.pid,
+            },
         )
 
     def _build_environment(self) -> dict[str, str]:
