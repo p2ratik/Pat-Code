@@ -83,13 +83,12 @@ class CLI:
         cmd_args = parts[1] if len(parts) > 1 else ""
         if cmd_name == "/exit" or cmd_name == "/quit":
             return False
-        elif command == "/help":
+        elif cmd_name == "/help":
             self.tui.show_help()
-        elif command == "/clear":
+        elif cmd_name == "/clear":
             self.agent.session.context_manager.clear()
-            self.agent.session.loop_detector.clear()
             console.print("[success]Conversation cleared [/success]")
-        elif command == "/config":
+        elif cmd_name == "/config":
             console.print("\n[bold]Current Configuration[/bold]")
             console.print(f"  Model: {self.config.model_name}")
             console.print(f"  Temperature: {self.config.temperature}")
@@ -116,7 +115,7 @@ class CLI:
                         f"[error]Incorrect approval policy: {cmd_args} [/error]"
                     )
                     console.print(
-                        f"Valid options: {', '.join(p for p in ApprovalPolicy)}"
+                        f"Valid options: {', '.join(p.value for p in ApprovalPolicy)}"
                     )
             else:
                 console.print(f"Current approval policy: {self.config.approval.value}")
@@ -255,7 +254,7 @@ class CLI:
 
                     self.agent.session = session
                     console.print(
-                        f"[success]Resumed session: {session.session_id}, checkpoint: [/success]"
+                        f"[success]Resumed session: {session.session_id}, checkpoint: {cmd_args}[/success]"
                     )
         else:
             console.print(f"[error]Unknown command: {cmd_name}[/error]")
@@ -293,7 +292,7 @@ class CLI:
             elif event.type == AgentEventType.AGENT_ERROR:
     
                 error = event.data.get("error", "")
-                console.print(f"\n [error] Bro ya fuckd up : {error} !")
+                console.print(f"\n[error]Agent error: {error}[/error]")
 
             elif event.type == AgentEventType.TOOL_CALL_START:
                 tool_name = event.data.get("name", "unknown")

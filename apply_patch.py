@@ -8,10 +8,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from tools.base import (
-    FileDiff,
     ToolConfirmation,
     ToolInvocation,
-    ToolKind,
+    Toolkind,
     ToolResult,
     Tool,
 )
@@ -88,7 +87,7 @@ class ApplyPatchTool(Tool):
         "*** Delete File: path - deletes the file\n"
         "*** Rename File: old -> new - renames/moves a file"
     )
-    kind = ToolKind.WRITE
+    kind = Toolkind.WRITE
     schema = ApplyPatchParams
 
     PATCH_START = re.compile(r"^\*\*\*\s*Begin\s+Patch\s*$", re.IGNORECASE)
@@ -357,7 +356,8 @@ class ApplyPatchTool(Tool):
         if search not in content:
             return f"ERROR: Search content not found in {op.path}"
 
-        new_content = content.replace(search, replace)
+        # Apply the replacement once to avoid accidental broad rewrites.
+        new_content = content.replace(search, replace, 1)
 
         if not dry_run:
             op.path.write_text(new_content, encoding="utf-8")

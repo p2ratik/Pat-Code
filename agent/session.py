@@ -37,9 +37,6 @@ class Session:
         self.turn_count = 0     
 
     async def initialize(self) -> None:
-        await self.mcp_manager.initialize()
-        self.mcp_manager.register_tools(self.tool_registry)
-
         self.discovery_manager.discover_all()
         self.context_manager = ContextManager(
             config=self.config,
