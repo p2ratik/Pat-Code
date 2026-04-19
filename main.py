@@ -95,7 +95,7 @@ class CLI:
             console.print(f"  Approval: {self.config.approval.value}")
             console.print(f"  Working Dir: {self.config.cwd}")
             console.print(f"  Max Turns: {self.config.max_turns}")
-            console.print(f"  Hooks Enabled: {self.config.hooks_enabled}")
+            # console.print(f"  Hooks Enabled: {self.config.hooks_enabled}")
         elif cmd_name == "/model":
             if cmd_args:
                 self.config.model_name = cmd_args
@@ -277,7 +277,7 @@ class CLI:
                     self.tui.begin_assistant()
                     assistant_stream = True
 
-                content = event.data.get("content", "") # Ei content ta ek er por ek user dekhbe through the cli ui .
+                content = event.data.get("content", "") 
                 self.tui.stream_assistant_delta(content=content)
 
             # elif event.type == AgentEventType.AGENT_START:

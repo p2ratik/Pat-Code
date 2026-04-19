@@ -13,6 +13,7 @@ from safety.approval import ApprovalManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
 from tools.registry import create_default_registry
+from db.database import DataBaseManager
 
 # Every session will have its own context , memory , tools , mcps and all 
 class Session:
@@ -35,8 +36,12 @@ class Session:
             self.config.cwd,
         )        
         self.turn_count = 0     
+        self.db_manager = DataBaseManager()
 
     async def initialize(self) -> None:
+        await self.mcp_manager.initialize()
+        self.mcp_manager.register_tools(self.tool_registry)
+
         self.discovery_manager.discover_all()
         self.context_manager = ContextManager(
             config=self.config,
