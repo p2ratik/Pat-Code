@@ -1,5 +1,5 @@
 [model]
-name = "z-ai/glm-4.5-air:free"
+name = "gpt-oss-120b:free"
 temperature = 0.8
 
 [[user_subagents]]

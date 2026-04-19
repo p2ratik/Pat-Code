@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 # from config.config import Config
 # from tools.base import ToolConfirmation
 from config.config import Config
+from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
 from utils.text import truncate_text
 from rich.padding import Padding
@@ -568,5 +569,42 @@ class TUI:
         self.console.print()
         self.console.print(panel)
 
-  
+
+    def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
+        output = [
+            Text(confirmation.tool_name, style="tool"),
+            Text(confirmation.description, style="code"),
+        ]
+
+        if confirmation.command:
+            output.append(Text(f"$ {confirmation.command}", style="warning"))
+
+        if confirmation.diff:
+            diff_text = confirmation.diff.to_diff()
+            output.append(
+                Syntax(
+                    diff_text,
+                    "diff",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+            )
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                Group(*output),
+                title=Text("Approval required", style="warning"),
+                title_align="left",
+                border_style="warning",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+        response = Prompt.ask(
+            "\nApprove?", choices=["y", "n", "yes", "no"], default="n"
+        )
+
+        return response.lower() in {"y", "yes"}  
      

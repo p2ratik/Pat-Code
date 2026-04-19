@@ -138,7 +138,7 @@ class Agent:
                 yield AgentEvent.tool_call_complete(
                     tool_call.call_id,
                     tool_call.name,
-                    result,
+                    result, 
                 )
 
                 tool_call_results.append(

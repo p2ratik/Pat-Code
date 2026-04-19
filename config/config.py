@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -58,6 +59,14 @@ class SubagentDefinition:
     max_turns: int = 20
     timeout_seconds: float = 600
 
+class ApprovalPolicy(str, Enum):
+    ON_REQUEST = "on-request"
+    ON_FAILURE = "on-failure"
+    AUTO = "auto"
+    AUTO_EDIT = "auto-edit"
+    NEVER = "never"
+    YOLO = "yolo"
+
 class Config(BaseModel):
     model : ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default_factory=Path.cwd)
@@ -71,6 +80,8 @@ class Config(BaseModel):
         None,
         description="If set, only these tools will be available to the agent",
     )
+
+    approval : ApprovalPolicy = ApprovalPolicy.ON_REQUEST
 
     user_subagents : list[SubagentDefinition] | None = None
 

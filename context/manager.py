@@ -6,7 +6,7 @@ from prompts.system import get_system_prompt
 from tools.base import Tool
 from utils.text import count_tokens
 from typing import Any
-
+from datetime import datetime
 @dataclass
 class MessageItem:
     role : str
@@ -14,6 +14,7 @@ class MessageItem:
     token_count : int | None = None
     tool_call_id : str | None = None
     tool_calls : list[dict[str, Any]] = field(default_factory=list)
+    pruned_at: datetime | None = None
 
     def to_dict(self)->dict[str, Any]:
 
