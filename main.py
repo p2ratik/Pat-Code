@@ -4,7 +4,7 @@ from agent.session import Session
 from client.llm_client import LLMClient
 from agent.agent import Agent
 from agent.events import AgentEventType
-from ui.tui import TUI, get_console
+from ui.tui1 import TUI, get_console
 from config.config import ApprovalPolicy, Config
 from config.loader import load_config
 import sys
@@ -214,6 +214,15 @@ class CLI:
             )
             checkpoint_id = persistence_manager.save_checkpoint(session_snapshot)
             console.print(f"[success]Checkpoint created: {checkpoint_id}[/success]")
+        elif cmd_name == "/listcheckpoints":
+            persistence_manager = PersistenceManager()
+            checkpoints = persistence_manager.list_checkpoints(self.agent.session.session_id)
+            console.print("\n[bold]Saved Checkpoints for current Session[/bold]")
+            for s in checkpoints:
+                console.print(
+                    f"  • {s['checkpoint_id']} (turns: {s['turn_count']}, updated: {s['updated_at']})"
+                )                 
+            
         elif cmd_name == "/restore":
             if not cmd_args:
                 console.print(f"[error]Usage: /restore <checkpoint_id> [/error]")

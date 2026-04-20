@@ -10,16 +10,18 @@ from config.loader import get_data_dir
 
 @dataclass
 class SessionSnapshot:
-    session_id: str
+    session_id: str 
     created_at: datetime
     updated_at: datetime
     turn_count: int
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
+    checkpoint_id : str | None = None       
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
+            "checkpoint_id" : self.checkpoint_id,            
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
@@ -90,8 +92,10 @@ class PersistenceManager:
         checkpoint_id = f"{snapshot.session_id}_{timestamp}"
         file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
 
+        snapshot_dict = snapshot.to_dict()
+        snapshot_dict['checkpoint_id'] = checkpoint_id
         with open(file_path, "w", encoding="utf-8") as fp:
-            json.dump(snapshot.to_dict(), fp, indent=2)
+            json.dump(snapshot_dict, fp, indent=2)
         os.chmod(file_path, 0o600)
         return checkpoint_id
 
@@ -105,3 +109,21 @@ class PersistenceManager:
             data = json.load(fp)
 
         return SessionSnapshot.from_dict(data)
+    
+    def list_checkpoints(self, session_id : str)->list[dict[str, Any]]:
+        curr_checkpoints = []
+        for file_path in self.checkpoints_dir.glob(f"{session_id}_*.json"):
+            with open(file_path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            curr_checkpoints.append(
+                {   "checkpoint_id" : data["checkpoint_id"],
+                    "session_id": data["session_id"],
+                    "created_at": data["created_at"],
+                    "updated_at": data["updated_at"],
+                    "turn_count": data["turn_count"],
+                }
+            )
+
+        curr_checkpoints.sort(key=lambda x: x["updated_at"], reverse=True)
+        return curr_checkpoints
+    
