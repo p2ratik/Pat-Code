@@ -60,8 +60,8 @@ class DataBaseManager():
                 self._connection.commit()
         except Exception as e:
             print(f"Cant add User Message to logs db !! {e}") 
-        finally:
-            self._connection.close()    
+        # finally:
+        #     self._connection.close()    
 
 
 

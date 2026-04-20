@@ -10,16 +10,13 @@ allowed_tools = ["grep", "glob", "read_file", "list_dir"]
 max_turns = 20
 timeout_seconds = 120
 
-[mcp_servers.test_filesystem]
-enabled = true
-startup_timeout_sec = 60
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
-env = {}
-cwd = "."
+[[user_subagents]]
+name = "RESEARCH_ANALYST"
+description = "Searches the web to fetch relavant content"
+goal_prompt = "You are a research agent and your job is to search and fetch relavant context on the given topic . Fetch relevant informtion only."
+allowed_tools = ["web_search", "web_fetch"]
+max_turns = 20
+timeout_seconds = 120
 
-[mcp_servers.test_url]
-enabled = true
-startup_timeout_sec = 60
-url = "http://127.0.0.1:8000/mcp"
+
 
