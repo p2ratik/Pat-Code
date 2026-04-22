@@ -7,6 +7,13 @@ from agent.events import AgentEventType
 from ui.tui1 import TUI, get_console
 from config.config import ApprovalPolicy, Config
 from config.loader import load_config
+from config.credentials import (
+    set_credential,
+    get_credential,
+    delete_credential,
+    APIKEY_KEY,
+    BASEURL_KEY,
+)
 import sys
 import asyncio
 import click
@@ -289,8 +296,6 @@ class CLI:
                 content = event.data.get("content", "") 
                 self.tui.stream_assistant_delta(content=content)
 
-            # elif event.type == AgentEventType.AGENT_START:
-            #     self.tui.print_welcome(title="Pratik AI", lines = ["model : Claude Opus 6.9", "cwd : G/projects/AiAgent"] )
 
             elif event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content", "")
@@ -332,31 +337,41 @@ class CLI:
         return final_response
 
 
-@click.command()
-@click.argument("prompt", required=False)
+@click.group(invoke_without_command=True)
+@click.pass_context
+@click.option(
+    "--prompt", "-p",
+    default=None,
+    help="Run a single prompt and exit (non-interactive mode).",
+)
 @click.option(
     '--cwd',
     '-c',
-    type=click.Path(exists = True, file_okay = False, path_type=Path),
-    help = "Current Working dir"
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Current working directory",
 )
-def main(prompt, cwd:Path|None):
+def main(ctx, prompt, cwd: Path | None):
+    """PAT — your AI coding agent."""
+    # If a sub-command is about to run (e.g. `agent configure …`), skip the
+    # normal agent startup entirely.
+    if ctx.invoked_subcommand is not None:
+        return
 
     try:
         config = load_config(cwd=cwd)
     except Exception as e:
         console.print(f"\n[error] Config Error : {e}[/error]")
+        sys.exit(1)
 
     errors = config.validate()
 
     if errors:
         for error in errors:
             console.print(f"Config Errors {error}")
-
-        sys.exit(1)    
+        sys.exit(1)
 
     cli = CLI(config=config)
-    #message = [{'role':'user', 'content':'Write me a code for implementing quick sort algorithm in go language '}]
+
     if prompt:
         result = asyncio.run(cli.run_single(prompt))
         if result is None:
@@ -364,5 +379,59 @@ def main(prompt, cwd:Path|None):
     else:
         asyncio.run(cli.run_interactive())
 
-main()
 
+# ---------------------------------------------------------------------------
+# `agent configure` sub-command group
+# ---------------------------------------------------------------------------
+
+@main.group("configure", help="Store or view credentials in the OS keyring.")
+def configure_group():
+    pass
+
+
+@configure_group.command("apikey", help="Store your API key in the OS keyring.")
+@click.argument("value")
+def configure_apikey(value: str):
+    set_credential(APIKEY_KEY, value)
+    masked = value[:6] + "*" * max(0, len(value) - 6)
+    console.print(f"[green][OK][/green] API key saved to keyring ({masked})")
+
+
+@configure_group.command("baseurl", help="Store the API base URL in the OS keyring.")
+@click.argument("value")
+def configure_baseurl(value: str):
+    set_credential(BASEURL_KEY, value)
+    console.print(f"[green][OK][/green] Base URL saved to keyring: {value}")
+
+
+@configure_group.command("show", help="Show currently stored credentials.")
+def configure_show():
+    api_key  = get_credential(APIKEY_KEY)
+    base_url = get_credential(BASEURL_KEY)
+
+    console.print("[bold]Stored credentials (keyring)[/bold]")
+    if api_key:
+        masked = api_key[:6] + "*" * max(0, len(api_key) - 6)
+        console.print(f"  apikey  : {masked}")
+    else:
+        console.print("  apikey  : [dim]not set[/dim]")
+
+    if base_url:
+        console.print(f"  baseurl : {base_url}")
+    else:
+        console.print("  baseurl : [dim]not set[/dim]")
+
+
+@configure_group.command("delete", help="Delete a stored credential from the OS keyring.")
+@click.argument("name", type=click.Choice(["apikey", "baseurl"], case_sensitive=False))
+def configure_delete(name: str):
+    key = APIKEY_KEY if name.lower() == "apikey" else BASEURL_KEY
+    removed = delete_credential(key)
+    if removed:
+        console.print(f"[green][OK][/green] '{name}' removed from keyring.")
+    else:
+        console.print(f"[yellow]'{name}' was not found in keyring.[/yellow]")
+
+
+if __name__ == "__main__":
+    main()

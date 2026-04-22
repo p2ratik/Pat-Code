@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 import os
+from config.credentials import get_credential, APIKEY_KEY, BASEURL_KEY
 
 
 class ModelConfig(BaseModel):
@@ -87,11 +88,13 @@ class Config(BaseModel):
 
     @property
     def api_key(self) -> str | None:
-        return os.environ.get("API_KEY") 
-    
+        """Keyring takes priority; env var is the fallback."""
+        return get_credential(APIKEY_KEY) or os.environ.get("API_KEY")
+
     @property
     def base_url(self) -> str | None:
-        return os.environ.get("BASE_URL")
+        """Keyring takes priority; env var is the fallback."""
+        return get_credential(BASEURL_KEY) or os.environ.get("BASE_URL")
 
     @property
     def model_name(self) -> str:
@@ -115,7 +118,10 @@ class Config(BaseModel):
         errors: list[str] = []
 
         if not self.api_key:
-            errors.append("No API key found. Set API_KEY environment variable")
+            errors.append(
+                "No API key found. Run 'agent --configure apikey <KEY>' "
+                "or set the API_KEY environment variable."
+            )
 
         if not self.cwd.exists():
             errors.append(f"Working directory does not exist: {self.cwd}")

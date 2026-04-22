@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pat-agent"
+version = "0.0.1"
+description = "PAT — an AI coding agent built from scratch."
+requires-python = ">=3.11"
+license = "MIT"
+
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    "keyring>=24.0.0",
+    "platformdirs>=4.0.0",
+    "tiktoken>=0.7.0",
+    "fastmcp>=2.0.0",
+    # tomllib is in stdlib for Python 3.11+; tomli is the fallback
+    "tomli>=2.0.0; python_version < '3.11'",
+]
+
+# The CLI entry-point.
+# "main:main" resolves to Pat-Code/main.py → the `main` click group,
+# because Pat-Code/ is declared as the source root below.
+[project.scripts]
+pat-agent = "main:main"
+
+# ---------------------------------------------------------------------------
+# Setuptools configuration
+# ---------------------------------------------------------------------------
+
+[tool.setuptools.packages.find]
+# All importable packages live inside Pat-Code/
+where = ["Pat-Code"]
+
+[tool.setuptools.package-dir]
+# Map the empty root namespace to the Pat-Code/ subdirectory so that
+# `import agent`, `import client`, `import config`, etc. all work.
+"" = "Pat-Code"

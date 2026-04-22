@@ -6,3 +6,5 @@ __pycache__
 *.spec
 *.exe
 /build
+/dist
+Pat-Code/pat_agent.egg-info
