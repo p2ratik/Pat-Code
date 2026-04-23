@@ -67,7 +67,7 @@ pat-agent --prompt "Summarize this project in simple words"
 
 ## Screenshot / Demo Image
 
-![PAT Demo](https://raw.githubusercontent.com/p2ratik/Pat-Code/main/assets/image.png)
+![PAT Demo](https://raw.githubusercontent.com/p2ratik/Pat-Code/master/Pat-Code/assets/image.png)
 
 
 ## Commands You Will Use Most
