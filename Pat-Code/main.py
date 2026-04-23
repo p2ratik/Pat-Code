@@ -388,7 +388,6 @@ def main(ctx, prompt, cwd: Path | None):
 def configure_group():
     pass
 
-
 @configure_group.command("apikey", help="Store your API key in the OS keyring.")
 @click.argument("value")
 def configure_apikey(value: str):
@@ -433,5 +432,58 @@ def configure_delete(name: str):
         console.print(f"[yellow]'{name}' was not found in keyring.[/yellow]")
 
 
+def _default_project_config() -> str:
+    return (
+        "max_turns = 100\n"
+        "approval = \"on-request\"\n\n"
+        "[model]\n"
+        "name = \"elephant-alpha\"\n"
+        "temperature = 1.0\n"
+        "context_window = 256000\n\n"
+        "[shell_environment]\n"
+        "ignore_default_excludes = false\n"
+        "exclude_patterns = [\"*KEY*\", \"*TOKEN*\", \"*SECRET*\"]\n"
+    )
+
+
+def _run_init_project(force: bool) -> None:
+    cwd = Path.cwd()
+    config_dir = cwd / ".ai-agent"
+    config_path = config_dir / "config.toml"
+
+    if config_path.exists() and not force:
+        console.print(
+            f"[yellow]Config already exists: {config_path}[/yellow]\n"
+            "Use [bold]pat-agent init --force[/bold] to overwrite it."
+        )
+        return
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(_default_project_config(), encoding="utf-8")
+
+    console.print(f"[green][OK][/green] Initialized project config at: {config_path}")
+
+
+@main.command("int", help="Initialize .ai-agent/config.toml in the current directory.")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite config.toml if it already exists.",
+)
+def init_project(force: bool):
+    _run_init_project(force)
+
+
+@main.command("init", help="Initialize .ai-agent/config.toml in the current directory.")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite config.toml if it already exists.",
+)
+def init_project_alias(force: bool):
+    _run_init_project(force)
+
+
 if __name__ == "__main__":
     main()
+

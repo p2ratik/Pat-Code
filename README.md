@@ -1,125 +1,145 @@
 # PAT Agent
 
-PAT is an AI coding agent built from scratch in Python. It provides an interactive CLI, a tool-driven agentic execution loop, support for MCP servers, and composable subagents for specialized tasks.
+PAT Agent is a smart command-line assistant that can help you work with files, run commands, search code, and automate repetitive tasks.
 
-## What This Agent Can Do
+It is designed to be easy to use, even if you are not a programmer.
 
-- Run in interactive chat mode or single-prompt mode.
-- Use built-in tools to read/edit files, run shell commands, search code, use web utilities, and manage memory/todos.
-- Connect to external MCP servers and expose their tools to the model.
-- Execute default and user-defined subagents as callable tools.
-- Enforce safety policies for mutating operations through approval modes.
-- Save, resume, checkpoint, and restore sessions.
+## Why People Use PAT
 
-## Architectural Pattern
+- It can read and edit files for you.
+- It can run terminal commands safely.
+- It can connect to external tools through MCP servers.
+- It can run specialized mini-agents called subagents.
+- It remembers context in a session so you can keep working naturally.
 
-PAT follows a session-oriented, event-driven agentic loop.
+## 5-Minute Quick Demo
 
-### Core Pattern
+This section is for first-time users.
 
-1. User input enters the CLI.
-2. A `Session` initializes model client, tool registry, MCP manager, discovery, context manager, and safety manager.
-3. The `Agent` runs an iterative loop (`max_turns`):
-	 - Send context + tool schemas to the model.
-	 - Stream text deltas.
-	 - Collect tool calls.
-	 - Invoke tools with validation and approval checks.
-	 - Feed tool results back into context.
-4. The loop exits when no further tool calls are requested or max turns are reached.
-
-### Main Components
-
-- `main.py`: CLI entrypoint and command handling.
-- `agent/agent.py`: core agentic loop and event emission.
-- `agent/session.py`: runtime composition root for each session.
-- `context/manager.py`: conversation state and token accounting.
-- `tools/registry.py`: tool registration, schema exposure, invocation, approval checks.
-- `tools/mcp/*`: MCP client/manager and MCP tool adapter.
-- `tools/subagents.py`: subagent tool implementation and default subagents.
-- `safety/approval.py`: policy-based approval decisions.
-- `config/*`: config model, loader, and secure credential storage.
-
-## Installation
-
-### Requirements
-
-- Python 3.11+
-- Windows, macOS, or Linux
-
-### Setup
+### 1) Install
 
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
-
-pip install -e .
+pip install pat-agent .
 ```
 
-This installs the CLI command:
+After installation, the CLI command is:
 
 ```bash
 pat-agent
 ```
 
-## Quick Start
-
-1. Configure credentials (stored in OS keyring):
+### 2) Configure API Key and Base URL
 
 ```bash
-pat-agent configure apikey <YOUR_API_KEY>
-pat-agent configure baseurl <YOUR_BASE_URL>
+pat-agent configure apikey YOUR_API_KEY
+pat-agent configure baseurl YOUR_BASE_URL
 ```
 
-2. Verify stored credentials:
+Pat supports 3 Base urls :
+1. Open router : https://openrouter.ai/api/v1
+2. Openapi : https://api.openai.com/v1
+3. Gemini : https://generativelanguage.googleapis.com/v1beta/openai/
+
+Check what is configured:
 
 ```bash
 pat-agent configure show
 ```
 
-3. Start interactive mode:
+### 3) Start the Agent
 
 ```bash
+pat-agent init 
 pat-agent
 ```
 
-4. Or run one prompt and exit:
+You can now type plain English requests, for example:
+
+- List all Python files in this project.
+- Create a new README section for troubleshooting.
+- Search for where session data is saved.
+
+### 4) Run One Prompt and Exit (Optional)
 
 ```bash
-pat-agent --prompt "Summarize this repository"
+pat-agent --prompt "Summarize this project in simple words"
 ```
 
-## Configuration
+## Screenshot / Demo Image
 
-PAT supports system-level and project-level configuration.
+![PAT Demo](https://raw.githubusercontent.com/p2ratik/Pat-Code/main/assets/image.png)
 
-### Config File Locations
 
-- System config: `<platform config dir>/ai-agent/config.toml`
-- Project config: `<project-root>/.ai-agent/config.toml`
+## Commands You Will Use Most
 
-Project config overrides system config.
+### Main Command
 
-### Credential Resolution
+```bash
+pat-agent [--prompt "..."] [--cwd PATH]
+```
 
-For both API key and base URL:
+- `--prompt` or `-p`: run once and exit.
+- `--cwd` or `-c`: run PAT in a specific folder.
 
-1. OS keyring value takes priority.
-2. Environment variable fallback is used if keyring is empty.
+### Configure Commands
 
-Environment variables:
+```bash
+pat-agent configure apikey VALUE
+pat-agent configure baseurl VALUE
+pat-agent configure show
+pat-agent configure delete apikey
+pat-agent configure delete baseurl
+```
 
-- `API_KEY`
-- `BASE_URL`
+What each one does:
 
-### Example `config.toml`
+- `configure apikey`: saves your API key securely in OS keyring.
+- `configure baseurl`: saves API endpoint URL securely in OS keyring.
+- `configure show`: shows current configured values (API key is masked).
+- `configure delete`: removes a saved value.
+
+## Interactive Commands (Inside PAT)
+
+When PAT is running, type these commands:
+
+- `/help` : show help.
+- `/clear` : clear current conversation.
+- `/config` : show current active settings.
+- `/model <name>` : switch model for this session.
+- `/approval <policy>` : change safety approval mode.
+- `/tools` : list available tools.
+- `/mcp` : show MCP server status.
+- `/stats` : show session stats.
+- `/save` : save current session.
+- `/sessions` : list saved sessions.
+- `/resume <session_id>` : resume a saved session.
+- `/checkpoint` : create a checkpoint.
+- `/listcheckpoints` : list checkpoints.
+- `/restore <checkpoint_id>` : restore a checkpoint.
+- `/exit` or `/quit` : close PAT.
+
+## Configuration System (Simple Explanation)
+
+PAT loads settings from two places:
+
+1. Global config on your machine.
+2. Project config in your project folder.
+
+Project config has higher priority.
+
+### Config File Name
+
+- `config.toml`
+
+### Project Config Location
+
+- `.ai-agent/config.toml` inside your project
+
+### Example Config (Safe Starting Point)
 
 ```toml
 max_turns = 100
 approval = "on-request"
-allowed_tools = ["read_file", "list_dir", "grep", "glob", "shell"]
 
 [model]
 name = "elephant-alpha"
@@ -129,28 +149,75 @@ context_window = 256000
 [shell_environment]
 ignore_default_excludes = false
 exclude_patterns = ["*KEY*", "*TOKEN*", "*SECRET*"]
+```
 
-[shell_environment.set_vars]
-ENV = "dev"
+## How PAT Handles API Key and Base URL
 
-[mcp_servers.filesystem]
-enabled = true
-startup_timeout_sec = 10
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+PAT checks credentials in this order:
 
+1. OS keyring (recommended)
+2. Environment variables
+
+Environment variable fallback names:
+
+- `API_KEY`
+- `BASE_URL`
+
+## Tools, MCP, and Subagents
+
+### Built-in Tools
+
+PAT includes built-in tools for:
+
+- File reading and writing
+- File editing
+- Directory listing
+- Pattern search and glob search
+- Shell commands
+- Web search and web fetch
+- Memory and todo tracking
+- Multi-file patch application
+
+### MCP Support
+
+PAT can connect to MCP servers from config and auto-load their tools.
+
+MCP tool names are registered in this format:
+
+- `server_name__tool_name`
+
+### Subagents
+
+Subagents are focused mini-agents that PAT can call for specific tasks.
+
+Default subagents:
+
+- `subagent_codebase_investigator`
+- `subagent_code_reviewer`
+
+You can create your own subagents.
+
+## Create Your Own Subagent
+
+Add this to `.ai-agent/config.toml`:
+
+```toml
 [[user_subagents]]
 name = "doc_writer"
-description = "Writes or improves project docs"
-goal_prompt = "You are a documentation specialist. Produce clear, concise technical docs."
+description = "Writes and improves docs"
+goal_prompt = "You are a documentation specialist. Write clear and beginner-friendly docs."
 allowed_tools = ["read_file", "glob", "grep", "write_file", "edit"]
 max_turns = 20
 timeout_seconds = 600
 ```
 
-### Approval Modes
+Once loaded, the subagent appears as a tool named:
 
-Supported values:
+- `subagent_doc_writer`
+
+## Approval Policies (Safety)
+
+Available policies:
 
 - `on-request`
 - `on-failure`
@@ -159,174 +226,43 @@ Supported values:
 - `never`
 - `yolo`
 
-## Commands Reference
+If you are new, start with:
 
-### CLI Commands
+- `on-request`
 
-```bash
-pat-agent [--prompt "..."] [--cwd <path>]
-```
+## Plain-Language Architecture
 
-- `--prompt`, `-p`: run one prompt non-interactively and exit.
-- `--cwd`, `-c`: set working directory for this run.
+PAT follows a simple flow:
 
-### Credential Commands
+1. You ask something.
+2. PAT sends your request + context to the model.
+3. The model decides if tools are needed.
+4. PAT runs tools (with approval checks if needed).
+5. PAT returns the final response.
 
-```bash
-pat-agent configure apikey <value>
-pat-agent configure baseurl <value>
-pat-agent configure show
-pat-agent configure delete apikey
-pat-agent configure delete baseurl
-```
-
-- `configure apikey`: stores API key in OS keyring.
-- `configure baseurl`: stores base URL in OS keyring.
-- `configure show`: displays stored values (API key masked).
-- `configure delete`: removes stored credential.
-
-### Interactive Slash Commands
-
-Available while running `pat-agent` in interactive mode:
-
-- `/help`: show commands.
-- `/clear`: clear conversation context.
-- `/config`: print current runtime config.
-- `/model <name>`: change model name for current session.
-- `/approval <policy>`: change approval mode for current session.
-- `/tools`: list available tools (built-in + MCP + subagent tools).
-- `/mcp`: show MCP server connection status and tool count.
-- `/stats`: show session stats.
-- `/save`: save session snapshot.
-- `/sessions`: list saved sessions.
-- `/resume <session_id>`: resume a saved session.
-- `/checkpoint`: create checkpoint for current session.
-- `/listcheckpoints`: list checkpoints for current session.
-- `/restore <checkpoint_id>`: restore from checkpoint.
-- `/exit` or `/quit`: exit the CLI.
-
-## Tools: Built-in Capabilities
-
-PAT registers these built-in tools by default:
-
-- `read_file(path, offset=1, limit=None)`
-- `write_file(path, content, create_directories=true)`
-- `edit(path, old_string, new_string, replace_all=false)`
-- `shell(command, timeout=10, cwd=None)`
-- `list_dir(path=".", include_hidden=false)`
-- `grep(pattern, path=".", case_insensitive=false)`
-- `glob(pattern, path=".")`
-- `web_search(query, max_results=10)`
-- `web_fetch(url, timeout=30)`
-- `todos(action, id=None, content=None)`
-- `memory(action, key=None, value=None)`
-- `apply_patch(patch, dry_run=false)`
-
-Notes:
-
-- Mutating tools pass through approval/safety checks.
-- `allowed_tools` can restrict tool visibility at runtime.
-
-## MCP Support
-
-PAT can connect to multiple MCP servers via config.
-
-### MCP Transport Options
-
-Each server must use exactly one of:
-
-- `command` + `args` (+ optional `env`, `cwd`) for stdio transport
-- `url` for HTTP/SSE transport
-
-### MCP Tool Naming
-
-Connected MCP tools are registered under:
-
-- `<server_name>__<tool_name>`
-
-This avoids name collisions and makes source server explicit.
-
-## Subagents
-
-Subagents are exposed as tools and run isolated focused tasks with their own constrained config.
-
-### Default Subagents
-
-- `subagent_codebase_investigator`
-- `subagent_code_reviewer`
-
-### Create Your Own Subagents
-
-Add one or more `[[user_subagents]]` blocks in `config.toml`.
-
-Required fields:
-
-- `name`
-- `description`
-- `goal_prompt`
-
-Optional fields:
-
-- `allowed_tools`
-- `max_turns`
-- `timeout_seconds`
-
-When loaded, each user subagent is registered as:
-
-- `subagent_<name>`
-
-Example call pattern (internally by the model):
-
-- Tool name: `subagent_doc_writer`
-- Params: `{ "goal": "Write a migration guide for this repo" }`
-
-## Custom Tools (Optional)
-
-Beyond subagents, PAT supports Python tool discovery from:
-
-- `<project>/.ai-agent/tools/*.py`
-- `<system_config_dir>/ai-agent/tools/*.py`
-
-Each file can define classes inheriting from the base `Tool` class. Discovered tools are auto-registered at session initialization.
-
-## Persistence
-
-PAT supports:
-
-- Session snapshots (`/save`, `/sessions`, `/resume`)
-- Checkpoints (`/checkpoint`, `/listcheckpoints`, `/restore`)
-- Persistent user memory via the `memory` tool
-
-## Security and Safety
-
-- Credentials are stored in OS keyring (not plaintext config).
-- Mutating operations can require confirmation depending on `approval` mode.
-- Shell execution has blocked-pattern checks for dangerous commands.
-- Shell environment can scrub secret-like variables via `exclude_patterns`.
+This loop continues until the task is done.
 
 ## Troubleshooting
 
-- If you see missing credential errors, run:
-	- `pat-agent configure apikey <value>`
-	- `pat-agent configure baseurl <value>`
-- If MCP tools are missing, check `/mcp` output and server config.
-- If a tool is not available, verify `allowed_tools` is not excluding it.
+- If PAT says API key is missing, run:
+  - `pat-agent configure apikey YOUR_API_KEY`
+- If PAT cannot reach your provider, check base URL:
+  - `pat-agent configure baseurl YOUR_BASE_URL`
+- If tools are missing, run `/tools` and verify your config is not restricting them.
+- If MCP tools are missing, run `/mcp` and check MCP server config.
 
-## Project Layout (High Level)
+## Project Structure (High Level)
 
 ```text
 Pat-Code/
-	main.py                # CLI entrypoint
-	agent/                 # agent loop + session runtime
-	client/                # OpenAI-compatible client + stream parsing
-	config/                # config model, loader, credentials
-	context/               # message/context lifecycle and compaction
-	tools/
-		builtins/            # built-in tool implementations
-		mcp/                 # MCP integration
-		subagents.py         # subagent definitions/execution
-	safety/                # approval policy and checks
-	ui/                    # rich terminal UI
+  main.py
+  agent/
+  client/
+  config/
+  context/
+  tools/
+  safety/
+  ui/
 ```
 
 ## License

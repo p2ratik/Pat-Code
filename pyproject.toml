@@ -4,10 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pat-agent"
-version = "0.0.1"
+version = "0.1.1"
 description = "PAT — an AI coding agent built from scratch."
+readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+
+
+keywords = [
+  "ai",
+  "agent",
+  "llm",
+  "cli",
+  "automation",
+  "coding-agent"
+]
 
 dependencies = [
     "openai>=1.0.0",
@@ -18,9 +29,23 @@ dependencies = [
     "platformdirs>=4.0.0",
     "tiktoken>=0.7.0",
     "fastmcp>=2.0.0",
+    "ddgs>=9.0.0",
     # tomllib is in stdlib for Python 3.11+; tomli is the fallback
     "tomli>=2.0.0; python_version < '3.11'",
 ]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+[project.urls]
+Homepage = "https://github.com/p2ratik/Pat-Code"
+Repository = "https://github.com/p2ratik/Pat-Code"
+Issues = "https://github.com/p2ratik/Pat-Code/issues"
 
 # The CLI entry-point.
 # "main:main" resolves to Pat-Code/main.py → the `main` click group,
@@ -40,3 +65,7 @@ where = ["Pat-Code"]
 # Map the empty root namespace to the Pat-Code/ subdirectory so that
 # `import agent`, `import client`, `import config`, etc. all work.
 "" = "Pat-Code"
+
+[tool.setuptools]
+# Include standalone modules used by entrypoints/tools under Pat-Code/.
+py-modules = ["main", "apply_patch"]

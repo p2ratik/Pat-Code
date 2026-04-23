@@ -79,6 +79,7 @@ class LLMClient():
                     yield event
                 return
             except RateLimitError as e:
+                # Exponential backoff
                 if attempt < self._max_retries:
                     wait_time = 2**attempt
                     await asyncio.sleep(wait_time)
