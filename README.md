@@ -19,7 +19,7 @@ This section is for first-time users.
 ### 1) Install
 
 ```bash
-pip install pat-agent .
+pip install pat-agent 
 ```
 
 After installation, the CLI command is:

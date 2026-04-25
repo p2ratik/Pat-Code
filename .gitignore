@@ -8,3 +8,5 @@ __pycache__
 /build
 /dist
 Pat-Code/pat_agent.egg-info
+.venv2
+.vscode

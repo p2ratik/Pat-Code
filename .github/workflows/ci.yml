@@ -1,0 +1,107 @@
+name: CI — Test & Validate
+
+on:
+  push:
+    branches: ["main", "master", "dev"]
+  pull_request:
+    branches: ["main", "master"]
+  # Also run the full pipeline when you publish a GitHub Release
+  release:
+    types: [published]
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Set up Python ─────────────────────────────────────────────────────
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      # ── Install dependencies ───────────────────────────────────────────────
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pytest pytest-asyncio
+
+      # ── Run tests ─────────────────────────────────────────────────────────
+      - name: Run tests
+        run: |
+          pytest test/ -v --tb=short
+        env:
+          # Prevent any accidental real API calls in CI
+          API_KEY: "ci-fake-key-not-real"
+          BASE_URL: "http://localhost:11434/v1"
+
+  # --------------------------------------------------------------------------
+  # Build check — ensure the package builds cleanly before publishing
+  # --------------------------------------------------------------------------
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check distribution with twine
+        run: twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # --------------------------------------------------------------------------
+  # Publish to PyPI — only runs when a GitHub Release is published
+  # To publish: go to GitHub → Releases → Draft a new release → Publish
+  # Make sure PYPI_API_TOKEN is set in: Settings → Secrets → Actions
+  # --------------------------------------------------------------------------
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+    # Guard: only run on a published GitHub Release, never on plain pushes/PRs
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pat-agent/
+
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
