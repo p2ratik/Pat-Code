@@ -54,7 +54,7 @@ class LLMClient():
             for tool in tools
         ]
 
-    async def chat_completion(self, messages: list[dict[str, Any]], tools:list[dict[str, Any]], stream:bool=True)->AsyncGenerator[StreamEvent]:
+    async def chat_completion(self, messages: list[dict[str, Any]], tools:list[dict[str, Any]], stream:bool=True)->AsyncGenerator[StreamEvent, None]:
 
         client = self.get_client()
 
@@ -106,7 +106,7 @@ class LLMClient():
                 )
                 return     
 
-    async def _stream_response(self, client, kwargs)->AsyncGenerator[StreamEvent]:
+    async def _stream_response(self, client, kwargs)->AsyncGenerator[StreamEvent, None]:
         """Stream Response"""
         # when ever stream = True its gonna return a AsyncGenerator not a normal Coroutine object
 

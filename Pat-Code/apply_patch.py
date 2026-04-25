@@ -292,11 +292,13 @@ class ApplyPatchTool(Tool):
                 old_lines = []
                 new_lines = []
                 return
+            old_content = "\n".join(old_lines)
+            new_content = "\n".join(new_lines)
             operations.append(
                 PatchOperation(
                     action=PatchAction.UPDATE,
                     path=path,
-                    content=f"{'\\n'.join(old_lines)}\x00{'\\n'.join(new_lines)}",
+                    content=f"{old_content}\x00{new_content}",
                 )
             )
             old_lines = []
@@ -363,6 +365,7 @@ class ApplyPatchTool(Tool):
             content_lines.pop()
 
         return "\n".join(content_lines), i
+
 
     async def get_confirmation(
         self,

@@ -87,11 +87,11 @@ class SubagentTool(Tool):
         try:
             async with Agent(subagent_config) as agent:
                 deadline = (
-                    asyncio.get_event_loop().time() + self.definition.timeout_seconds
+                    asyncio.get_running_loop().time() + self.definition.timeout_seconds
                 )
 
                 async for event in agent.run(prompt):
-                    if asyncio.get_event_loop().time() > deadline:
+                    if asyncio.get_running_loop().time() > deadline:
                         terminate_response = "timeout"
                         final_response = "Sub-agent timed out"
                         break

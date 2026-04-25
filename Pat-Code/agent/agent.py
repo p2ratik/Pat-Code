@@ -25,7 +25,7 @@ class Agent:
         self.session.db_manager.add_msg_to_db(Columns(session_id=self.session.session_id, 
                                                       role="user",
                                                       content=message,
-                                                      token=count_tokens(self.session.config.model_name, message)))
+                                                      token=count_tokens(message, self.session.config.model_name)))
 
         final_response = ""
         async for event in self._agentic_loop():
@@ -40,7 +40,7 @@ class Agent:
         yield AgentEvent.agent_end(final_response,usage=None)       
 
      
-    async def _agentic_loop(self) -> AsyncGenerator[AgentEvent]:
+    async def _agentic_loop(self) -> AsyncGenerator[AgentEvent, None]:
         # The context manager will handle user and assistant messages
         max_turns = self.config.max_turns
 
@@ -163,7 +163,7 @@ class Agent:
                 self.session.db_manager.add_msg_to_db(Columns(session_id = self.session.session_id,
                                                            role = "tool",
                                                            content = tool_result.content,
-                                                           token = count_tokens(self.session.config.model_name, tool_result.content),
+                                                           token = count_tokens(tool_result.content, self.session.config.model_name),
                                                            tool_call_id = tool_result.tool_call_id,
                                                            ))
 

@@ -99,7 +99,7 @@ class ShellTool(Tool):
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
-            start_new_session=True,
+            start_new_session=sys.platform != "win32",
         )
 
         async def _read_stream(stream: asyncio.StreamReader, buffer: list[str]) -> None:
