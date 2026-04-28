@@ -7,7 +7,6 @@ import logging
 from safety.approval import ApprovalContext, ApprovalDecision, ApprovalManager
 from tools.subagents import SubagentTool, get_default_subagent_definitions
 
-
 logger = logging.getLogger(__name__)
 
 class ToolRegistry:
@@ -70,6 +69,7 @@ class ToolRegistry:
         name: str,
         params: dict[str, Any],
         cwd: Path,
+        session : Any,
         #hook_system: HookSystem,
         approval_manager: ApprovalManager | None = None,
     ) -> ToolResult:
@@ -100,6 +100,7 @@ class ToolRegistry:
         invocation = ToolInvocation(
             params=params,
             cwd=cwd,
+            session=session
         )
         if approval_manager:
             confirmation = await tool.get_confirmation(invocation)

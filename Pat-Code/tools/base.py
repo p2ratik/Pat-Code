@@ -5,7 +5,6 @@ from typing import Any
 from dataclasses import dataclass, field
 from pathlib import Path
 from pydantic.json_schema import model_json_schema
-
 from config.config import Config
 
 class Toolkind(str, Enum):
@@ -53,6 +52,7 @@ class FileDiff:
 class ToolInvocation:
     params : dict[str, Any]
     cwd : Path
+    session : Any
 
 # By LLM
 @dataclass

@@ -5,22 +5,25 @@ from config.loader import get_data_dir
 from tools.base import Tool, ToolInvocation, Toolkind, ToolResult
 from pydantic import BaseModel, Field
 
-
 class MemoryParams(BaseModel):
     action: str = Field(
-        ..., description="Action: 'set', 'get', 'delete', 'list', 'clear'"
+        ..., description="Action: 'set', query, 'delete', 'list', 'clear'"
     )
-    key: str | None = Field(
-        None, description="Memory key (required for `set`, `get`, `delete`)"
+    query: str | None = Field(
+        None, description="Query to get relevant search result using the semantic search technique `query (action). Do not use this while setting value . Its just for searching ."
     )
-    value: str | None = Field(None, description="Value to store (required for `set`)")
+    value: str | None = Field(None, description="Value to store (required for `set`). Set the value in such way that it can be searched when required through similarity search technique")
+
+    importance : int = Field(..., description="How important the memory is on a scale of 0-1 .")
 
 
 class MemoryTool(Tool):
     name = "memory"
-    description = "Store and retrieve persistent memory. Use this to remember user preferences, important context or notes."
+    description = "Store and retrieve persistent memory. Use this to remember user preferences, important context or notes. The context are stored as vectors and search result are based on similary search"
     kind = Toolkind.MEMORY
     schema = MemoryParams
+
+
 
     def _load_memory(self) -> dict:
         data_dir = get_data_dir()
@@ -43,19 +46,31 @@ class MemoryTool(Tool):
 
         path.write_text(json.dumps(memory, indent=2, ensure_ascii=False))
 
+    def _build_metadatas(self, importance : int, session_id : str)->dict:
+
+        return {
+            "importance" : importance,
+            "session_id" : session_id,
+        }
+        
+
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = MemoryParams(**invocation.params)
 
         if params.action.lower() == "set":
-            if not params.key or not params.value:
+            if not params.importance or not params.value:
                 return ToolResult.error_result(
-                    "`key` and `value` are required for 'set' action"
+                    "`importance` and `value` are required for 'set' action"
                 )
-            memory = self._load_memory()
-            memory["entries"][params.key] = params.value
-            self._save_memory(memory)
 
-            return ToolResult.success_result(f"Set memory: {params.key}")
+            metadata = self._build_metadatas(params.importance, invocation.session.session_id)
+            try:
+                invocation.session.memory_manager.add_memory(content = params.value, metadata =metadata, memory = 'episodic' )
+                return ToolResult.success_result(f"Set memory:")
+            except Exception as e:
+                return ToolResult.error_result(f"Error occured ! DB error {e}")
+
+
         elif params.action.lower() == "get":
             if not params.key:
                 return ToolResult.error_result("`key` required for 'get' action")

@@ -137,6 +137,7 @@ class Agent:
                     tool_call.name,
                     tool_call.arguments,
                     self.config.cwd,
+                    self.session,
                     # self.session.hook_system,
                     self.session.approval_manager,
                 )
