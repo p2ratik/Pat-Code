@@ -135,7 +135,7 @@ class TestToolBase:
 
     def test_execute_returns_result(self, tmp_path):
         tool = self._make_tool(tmp_path)
-        invocation = ToolInvocation(params={"msg": "world"}, cwd=tmp_path)
+        invocation = ToolInvocation(params={"msg": "world"}, cwd=tmp_path, session=None)
         result = asyncio.run(tool.execute(invocation))
         assert result.success
         assert result.output == "world"
