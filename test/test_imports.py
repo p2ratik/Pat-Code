@@ -54,6 +54,8 @@ MODULES = [
     "db.database",
     # apply_patch
     "apply_patch",
+    # vectorstore
+    "vector_store.memory_manager"
 ]
 
 

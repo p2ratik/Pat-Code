@@ -66,8 +66,9 @@ class MCPManager:
                     if client.status != MCPServerStatus.ERROR:
                         client.status = MCPServerStatus.ERROR
                     logger.warning(
-                        "MCP server '%s' failed to connect: %s",
+                        "MCP server '%s' failed to connect: %s: %s",
                         name,
+                        type(result).__name__,
                         result,
                     )
 

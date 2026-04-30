@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
@@ -22,9 +22,28 @@ class ShellEnvironmentPolicy(BaseModel):
     )
     set_vars: dict[str, str] = Field(default_factory=dict)
 
+class MCPOAuthConfig(BaseModel):
+    """OAuth2 configuration for URL-based MCP servers.
+
+    Supports two modes:
+    - **Client-credentials** (machine-to-machine): supply ``client_id`` +
+      ``client_secret``.  fastmcp's built-in ``OAuth`` helper will perform the
+      token exchange automatically.
+    - **Discovery / interactive**: omit ``client_id`` / ``client_secret`` and
+      fastmcp will run the OAuth discovery + browser-consent flow instead.
+    """
+
+    client_id: str | None = None
+    client_secret: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    # Optional: override the OAuth metadata / token endpoint discovered from the
+    # MCP server URL.  Usually left empty so fastmcp handles discovery.
+    token_url: str | None = None
+
+
 class MCPServerConfig(BaseModel):
     enabled: bool = True
-    startup_timeout_sec: float = 10
+    startup_timeout_sec: float = 30
 
     # stdio transport
     command: str | None = None
@@ -34,7 +53,16 @@ class MCPServerConfig(BaseModel):
 
     # http/sse transport
     url: str | None = None
-    
+    # Explicit transport override — skips the URL-suffix heuristic.
+    # Leave as None to let the client auto-detect from the URL path.
+    transport: Literal["sse", "streamable-http"] | None = None
+    # Raw HTTP headers forwarded on every request (e.g. x-api-key).
+    headers: dict[str, str] = Field(default_factory=dict)
+    # Shorthand: injects `Authorization: Bearer <token>` automatically.
+    auth_token: str | None = None
+    # Full OAuth2 config.  Mutually exclusive with auth_token.
+    oauth: MCPOAuthConfig | None = None
+
     @model_validator(mode="after")
     def validate_transport(self) -> MCPServerConfig:
         has_command = self.command is not None
@@ -50,7 +78,12 @@ class MCPServerConfig(BaseModel):
                 "MCP Server cannot have both 'command' (stdio) and 'url' (http/sse)"
             )
 
-        return self    
+        if self.auth_token and self.oauth:
+            raise ValueError(
+                "MCP Server cannot have both 'auth_token' and 'oauth' — choose one"
+            )
+
+        return self
 @dataclass
 class SubagentDefinition:
     name: str

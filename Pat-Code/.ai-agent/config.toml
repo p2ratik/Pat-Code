@@ -1,0 +1,107 @@
+max_turns = 100
+approval = "on-request"
+
+[model]
+name = "ling-2.6-1t:free"
+temperature = 1.0
+context_window = 256000
+
+[shell_environment]
+ignore_default_excludes = false
+exclude_patterns = ["*KEY*", "*TOKEN*", "*SECRET*"]
+
+# ── Google Workspace MCP Servers ──────────────────────────────────────────────
+# Prerequisites:
+#   1. Go to https://console.cloud.google.com and create a project.
+#   2. Enable the APIs you need (Gmail, Drive, Calendar, Chat, People).
+#   3. Create an OAuth 2.0 Client ID → Desktop App → download credentials.
+#   4. Paste your client_id and client_secret into the blocks below.
+#   5. On first run the agent will open a browser for Google consent.
+#      The token is cached automatically — subsequent runs are silent.
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.gmail]
+url = "https://gmailmcp.googleapis.com/mcp/v1"
+transport = "streamable-http"
+startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
+enabled = false
+
+[mcp_servers.gmail.oauth]
+client_id     = "Google_client_id"
+client_secret = "Google_client_secret"
+scopes = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.send",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.google_drive]
+url = "https://drivemcp.googleapis.com/mcp/v1"
+transport = "streamable-http"
+startup_timeout_sec = 30
+enabled = false
+
+[mcp_servers.google_drive.oauth]
+client_id     = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+scopes = [
+  "https://www.googleapis.com/auth/drive.readonly",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.google_calendar]
+url = "https://calendarmcp.googleapis.com/mcp/v1"
+transport = "streamable-http"
+startup_timeout_sec = 30
+enabled = false
+
+[mcp_servers.google_calendar.oauth]
+client_id     = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+scopes = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.google_chat]
+url = "https://chatmcp.googleapis.com/mcp/v1"
+transport = "streamable-http"
+startup_timeout_sec = 30
+enabled = false
+
+[mcp_servers.google_chat.oauth]
+client_id     = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+scopes = [
+  "https://www.googleapis.com/auth/chat.messages.readonly",
+  "https://www.googleapis.com/auth/chat.messages.create",
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.google_people]
+url = "https://people.googleapis.com/mcp/v1"
+transport = "streamable-http"
+startup_timeout_sec = 30
+enabled = false
+
+[mcp_servers.google_people.oauth]
+client_id     = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+scopes = [
+  "https://www.googleapis.com/auth/contacts.readonly",
+]
+
+[mcp_servers.eraser]
+url = "https://app.eraser.io/api/mcp"
+transport = "streamable-http"
+startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
+enabled = false
+
+[mcp_servers.eraser.oauth]
+# Leave client_id / client_secret empty — fastmcp does full discovery

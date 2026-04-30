@@ -8,9 +8,10 @@ It is designed to be easy to use, even if you are not a programmer.
 
 - It can read and edit files for you.
 - It can run terminal commands safely.
-- It can connect to external tools through MCP servers.
+- It can connect to external tools through MCP servers (including OAuth2 providers like Google Workspace).
 - It can run specialized mini-agents called subagents.
-- It remembers context in a session so you can keep working naturally.
+- It plans, reasons, and verifies steps for higher accuracy in complex tasks.
+- It uses embedding-based memory so recall is fast and relevant.
 
 ## 5-Minute Quick Demo
 
@@ -142,7 +143,7 @@ max_turns = 100
 approval = "on-request"
 
 [model]
-name = "elephant-alpha"
+name = "claude-opus-4.7"
 temperature = 1.0
 context_window = 256000
 
@@ -181,10 +182,40 @@ PAT includes built-in tools for:
 ### MCP Support
 
 PAT can connect to MCP servers from config and auto-load their tools.
+OAuth2-based MCP connections are supported for providers like Google Workspace.
 
 MCP tool names are registered in this format:
 
 - `server_name__tool_name`
+
+### Configure MCP Servers (Quick Guide)
+
+Add MCP servers to your project config at `.ai-agent/config.toml`.
+
+HTTP/SSE MCP server with OAuth2:
+
+```toml
+[mcp_servers.google_workspace]
+url = "https://your-mcp.example.com"
+
+[mcp_servers.google_workspace.oauth]
+client_id = "YOUR_CLIENT_ID"
+client_secret = "YOUR_CLIENT_SECRET"
+scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+```
+
+Notes:
+- If you omit `client_id` and `client_secret`, PAT uses the MCP server's OAuth discovery flow (browser consent).
+- You can use `auth_token` instead of `oauth` for non-OAuth servers.
+- For local stdio MCP servers, use `command` and `args` instead of `url`.
+
+Example stdio MCP server:
+
+```toml
+[mcp_servers.local_files]
+command = "node"
+args = ["server.js"]
+```
 
 ### Subagents
 
@@ -194,6 +225,10 @@ Default subagents:
 
 - `subagent_codebase_investigator`
 - `subagent_code_reviewer`
+- `subagent_dependency_tracer`
+- `subagent_root_cause_investigator`
+- `subagent_regression_hunter`
+- `subagent_architecture_mapper`
 
 You can create your own subagents.
 
@@ -239,6 +274,20 @@ PAT follows a simple flow:
 3. The model decides if tools are needed.
 4. PAT runs tools (with approval checks if needed).
 5. PAT returns the final response.
+
+## Reasoning and Investigation
+
+PAT uses a deliberate problem-solving loop for better accuracy:
+
+- Plans and reasons before acting on non-trivial tasks.
+- Verifies results after each major step.
+- During debugging or investigation, it builds a system-level understanding first,
+  traces dependencies, estimates confidence, and then answers.
+
+## Embedding Memory
+
+PAT stores memory as embeddings so it can search and recall relevant context quickly.
+This improves long-running tasks without requiring you to restate details.
 
 This loop continues until the task is done.
 

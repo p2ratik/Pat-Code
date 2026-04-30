@@ -437,7 +437,7 @@ def _default_project_config() -> str:
         "max_turns = 100\n"
         "approval = \"on-request\"\n\n"
         "[model]\n"
-        "name = \"elephant-alpha\"\n"
+        "name = \"gpt-4.1-mini\"\n"
         "temperature = 1.0\n"
         "context_window = 256000\n\n"
         "[shell_environment]\n"

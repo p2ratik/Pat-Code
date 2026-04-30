@@ -3,8 +3,13 @@ from enum import Enum
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+
 from config.config import MCPServerConfig
 from fastmcp import Client
+from fastmcp.client.auth import BearerAuth, OAuth
 from fastmcp.client.transports import (
     SSETransport,
     StdioTransport,
@@ -47,6 +52,74 @@ class MCPClient:
     def tools(self) -> list[MCPToolInfo]:
         return list(self._tools.values())
 
+    def _build_auth(
+        self,
+    ) -> httpx.Auth | None:
+        """Resolve the authentication handler for URL-based transports.
+
+        Priority order:
+        1. ``oauth`` config — uses fastmcp's ``OAuth`` helper, which supports
+           both the MCP OAuth discovery flow (interactive / headless) and the
+           OAuth2 client-credentials grant when ``client_id`` + ``client_secret``
+           are provided.
+        2. ``auth_token`` shorthand — wraps the pre-obtained token in a
+           ``BearerAuth`` handler (i.e. ``Authorization: Bearer <token>``).
+        3. ``None`` — no authentication; raw ``headers`` are still forwarded
+           by the transport layer.
+        """
+        if self.config.oauth:
+            oauth_cfg = self.config.oauth
+            return OAuth(
+                mcp_url=str(self.config.url),
+                client_id=oauth_cfg.client_id,
+                client_secret=oauth_cfg.client_secret,
+                scopes=oauth_cfg.scopes or None,
+            )
+
+        if self.config.auth_token:
+            return BearerAuth(token=self.config.auth_token)
+
+        return None
+
+    def _resolve_url_transport(
+        self,
+        url: str,
+    ) -> SSETransport | StreamableHttpTransport:
+        """Pick the correct HTTP transport for a URL-based MCP server.
+
+        Resolution order:
+        1. Explicit ``transport`` field in config (highest priority).
+        2. URL *path* heuristic: path component ends with ``/sse`` — uses
+           ``SSETransport``.  The check uses :func:`urllib.parse.urlparse` so
+           query-strings never interfere with the match.
+        3. Default: ``StreamableHttpTransport``.
+        """
+        # Merge explicit headers and inject Bearer token header if needed.
+        # Note: auth takes priority for token injection; headers are additive.
+        headers: dict[str, str] = dict(self.config.headers)
+
+        auth = self._build_auth()
+
+        transport_kwargs: dict[str, Any] = {
+            "url": url,
+            "headers": headers or None,
+            "auth": auth,
+        }
+
+        # Explicit declaration wins — no heuristic needed.
+        if self.config.transport == "sse":
+            return SSETransport(**transport_kwargs)
+        if self.config.transport == "streamable-http":
+            return StreamableHttpTransport(**transport_kwargs)
+
+        # Heuristic fallback: inspect only the URL *path* component so that
+        # query-strings (e.g. ?token=...) do not break the suffix check.
+        parsed_path = urlparse(url).path.rstrip("/")
+        if parsed_path.endswith("/sse"):
+            return SSETransport(**transport_kwargs)
+
+        return StreamableHttpTransport(**transport_kwargs)
+
     def _create_transport(
         self,
     ) -> StdioTransport | SSETransport | StreamableHttpTransport:
@@ -63,12 +136,7 @@ class MCPClient:
             )
 
         if self.config.url:
-            url = str(self.config.url).strip()
-            if url.lower().rstrip("/").endswith("/sse"):
-                return SSETransport(url=url)
-
-            # FastMCP HTTP transport serves MCP via streamable HTTP endpoints.
-            return StreamableHttpTransport(url=url)
+            return self._resolve_url_transport(str(self.config.url).strip())
 
         raise ValueError(
             "MCP client requires either command (stdio) or url (http/sse) transport"

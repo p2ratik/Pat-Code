@@ -7,14 +7,14 @@ from pydantic import BaseModel, Field
 
 class MemoryParams(BaseModel):
     action: str = Field(
-        ..., description="Action: 'set', query, 'delete', 'list', 'clear'"
+        ..., description="Action: 'set', 'query', 'delete', 'list'"
     )
     query: str | None = Field(
         None, description="Query to get relevant search result using the semantic search technique `query (action). Do not use this while setting value . Its just for searching ."
     )
     value: str | None = Field(None, description="Value to store (required for `set`). Set the value in such way that it can be searched when required through similarity search technique")
 
-    importance : int = Field(..., description="How important the memory is on a scale of 0-1 .")
+    importance : int | None = Field(None, description="How important the memory is on a scale of 0-1 .")
 
 
 class MemoryTool(Tool):
@@ -71,22 +71,30 @@ class MemoryTool(Tool):
                 return ToolResult.error_result(f"Error occured ! DB error {e}")
 
 
-        elif params.action.lower() == "get":
-            if not params.key:
-                return ToolResult.error_result("`key` required for 'get' action")
+        elif params.action.lower() == "query":
+            if not params.query:
+                return ToolResult.error_result("`query` required for 'query' action")
 
-            memory = self._load_memory()
-            if params.key not in memory.get("entries", {}):
+            try:
+                results = invocation.session.memory_manager.search(query = params.query)
+            except Exception as e:
+                return ToolResult.error_result(f"Failed to Fetch relevant data  ! DB error {e}")       
+            
+            if not results:
                 return ToolResult.success_result(
-                    f"Memory not found: {params.key}",
+                    f"Memory not found for query {params.query}",
                     metadata={
                         "found": False,
                     },
                 )
+            context =  "\n".join([content['content'] for content in results])
+            session_ids = set([md['metadata']['session_id'] for md in results])
+
             return ToolResult.success_result(
-                f"Memory found: {params.key}: {memory['entries'][params.key]}",
+                f"Memory found for query: {params.query}: {context}",
                 metadata={
                     "found": True,
+                    "session_ids" :  session_ids,
                 },
             )
         elif params.action == "delete":
@@ -101,21 +109,23 @@ class MemoryTool(Tool):
 
             return ToolResult.success_result(f"Deleted memory: {params.key}")
         elif params.action == "list":
-            memory = self._load_memory()
-            entries = memory.get("entries", {})
-            if not entries:
+            try:
+                memory = invocation.session.memory_manager.list_data()
+            except Exception as e:
+                return ToolResult.error_result(f"Failed to Fetch relevant data  ! DB error {e}")    
+                               
+            if not memory:
                 return ToolResult.success_result(
                     f"No memories stored",
                     metadata={
                         "found": False,
                     },
                 )
-            lines = [f"Stored memories:"]
-            for key, value in sorted(entries.items()):
-                lines.append(f"  {key}: {value}")
+
+            content = '\n'.join([content[0] for content in memory])
 
             return ToolResult.success_result(
-                "\n".join(lines),
+                content,
                 metadata={
                     "found": True,
                 },

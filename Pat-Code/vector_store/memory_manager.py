@@ -104,7 +104,7 @@ class FaissMemoryStore:
                 continue
 
             self.cursor.execute("""
-            SELECT content, memory_type, metadata
+            SELECT content, memory, metadata
             FROM memories
             WHERE faiss_id = ?
             """, (int(faiss_id),))
@@ -121,3 +121,13 @@ class FaissMemoryStore:
                 })
 
         return results
+
+
+    def list_data(self):
+
+        self.cursor.execute("""
+        SELECT content, metadata FROM memories""")
+
+        rows = self.cursor.fetchall() # Tuple 
+
+        return rows

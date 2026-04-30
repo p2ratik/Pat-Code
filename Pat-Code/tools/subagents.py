@@ -160,9 +160,61 @@ Do NOT modify any files.After performing the tool calls do report what you find 
     timeout_seconds=300,
 )
 
+DEPENDENCY_TRACER = SubagentDefinition(
+    name="dependency_tracer",
+    description="Traces dependencies, call chains, and module relationships to map impacts",
+    goal_prompt="""You are a dependency tracing specialist.
+Your job is to map dependencies and call chains related to the requested area.
+Use read_file, grep, glob, and list_dir to investigate.
+Do NOT modify any files. After performing the tool calls do report what you find """,
+    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    max_turns=30,
+    timeout_seconds=300,
+)
+
+ROOT_CAUSE_INVESTIGATOR = SubagentDefinition(
+    name="root_cause_investigator",
+    description="Investigates symptoms to identify likely root causes and evidence",
+    goal_prompt="""You are a root cause investigation specialist.
+Your job is to trace symptoms to their most likely causes with evidence.
+Use read_file, grep, glob, and list_dir to investigate.
+Do NOT modify any files. After performing the tool calls do report what you find """,
+    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    max_turns=30,
+    timeout_seconds=300,
+)
+
+REGRESSION_HUNTER = SubagentDefinition(
+    name="regression_hunter",
+    description="Looks for behavioral regressions by comparing patterns, tests, and recent changes",
+    goal_prompt="""You are a regression investigation specialist.
+Your job is to identify likely regressions and where they were introduced.
+Use read_file, grep, glob, and list_dir to investigate.
+Do NOT modify any files. After performing the tool calls do report what you find """,
+    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    max_turns=30,
+    timeout_seconds=300,
+)
+
+ARCHITECTURE_MAPPER = SubagentDefinition(
+    name="architecture_mapper",
+    description="Reconstructs system architecture, subsystem boundaries, and ownership flow",
+    goal_prompt="""You are an architecture mapping specialist.
+Your job is to infer system structure, subsystem boundaries, and ownership flow.
+Use read_file, grep, glob, and list_dir to investigate.
+Do NOT modify any files. After performing the tool calls do report what you find """,
+    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    max_turns=30,
+    timeout_seconds=300,
+)
+
 
 def get_default_subagent_definitions() -> list[SubagentDefinition]:
     return [
         CODEBASE_INVESTIGATOR,
         CODE_REVIEWER,
+        DEPENDENCY_TRACER,
+        ROOT_CAUSE_INVESTIGATOR,
+        REGRESSION_HUNTER,
+        ARCHITECTURE_MAPPER,
     ]
