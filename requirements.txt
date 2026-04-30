@@ -8,7 +8,7 @@ tiktoken>=0.7.0
 fastmcp>=2.0.0
 ddgs>=9.0.0
 tomli>=2.0.0; python_version < "3.11"
-faiss-cpu==1.8.0
+faiss-cpu==1.13.2
 fastembed==0.3.6
-numpy==2.4.4
+numpy==1.26.4
 sqlite-utils==3.38
