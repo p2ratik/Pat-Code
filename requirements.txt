@@ -11,5 +11,5 @@ tomli>=2.0.0; python_version < "3.11"
 
 faiss-cpu==1.13.2
 fastembed==0.8.0
-numpy==1.26.4
+numpy>=1.26,<3
 sqlite-utils==3.38
