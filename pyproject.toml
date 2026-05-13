@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pat-agent"
-version = "0.1.5"
+version = "0.1.6"
 description = "PAT — an AI coding agent built from scratch."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,7 +51,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/p2ratik/Pat-Code"
+Homepage = "https://pat-agent.netlify.app/"
 Repository = "https://github.com/p2ratik/Pat-Code"
 Issues = "https://github.com/p2ratik/Pat-Code/issues"
 

@@ -2,7 +2,7 @@ max_turns = 100
 approval = "on-request"
 
 [model]
-name = "ling-2.6-1t:free"
+name = "gpt-4.1-mini"
 temperature = 1.0
 context_window = 256000
 
@@ -101,7 +101,7 @@ scopes = [
 url = "https://app.eraser.io/api/mcp"
 transport = "streamable-http"
 startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
-enabled = false
+enabled = true
 
 [mcp_servers.eraser.oauth]
 # Leave client_id / client_secret empty — fastmcp does full discovery
