@@ -1,3 +1,98 @@
+import os
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.security import HTTPBearer
+from fastapi.openapi.utils import get_openapi
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-app = FastAPI()
+from api.db.database import CloudDatabase
+from api.auth.service import AuthService
+from api.pat_service import PATService
+from api.routes import users, chat
+
+logger = logging.getLogger(__name__)
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ──
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is required")
+
+    db = CloudDatabase(database_url)
+    await db.initialize()
+
+    app.state.db = db
+    app.state.auth_service = AuthService(db)
+    app.state.pat_service = PATService(db)
+
+    logger.info("PAT API started")
+    yield
+
+    # ── Shutdown ──
+    await db.shutdown()
+    logger.info("PAT API shut down")
+
+
+app = FastAPI(
+    title="PAT API",
+    description="""PAT — Personal Agent Terminal Cloud API
+
+## Quick start
+1. `POST /users` — create a user, copy the `id`
+2. `POST /users/{id}/token` — get a JWT, copy `access_token`
+3. Click **Authorize** above, paste `Bearer <token>`
+4. `POST /chat` — start chatting
+""",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(users.router, prefix="/users")
+app.include_router(chat.router, prefix="/chat")
+
+
+@app.get("/health", tags=["health"])
+async def health_check():
+    return {"status": "ok"}
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    # Add Bearer security scheme so the Authorize button appears in /docs
+    schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+    for path in schema["paths"].values():
+        for operation in path.values():
+            operation.setdefault("security", [{"BearerAuth": []}])
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi

@@ -120,6 +120,10 @@ CREATE TABLE messages (
 
     token_count INTEGER,
 
+    tool_call_id TEXT,
+
+    tool_calls JSONB,
+
     created_at TIMESTAMP NOT NULL
 );
 
@@ -445,6 +449,8 @@ connected
 expired
 disconnected
 error
+refresh_required
+disabled
 MCP_CREDENTIALS
 
 Purpose:
