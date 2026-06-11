@@ -18,7 +18,7 @@ from vector_store.memory_manager import FaissMemoryStore
 
 # Every session will have its own context , memory , tools , mcps and all 
 class Session:
-    def __init__(self, config=Config):
+    def __init__(self, config=Config, enable_memory: bool = True):
         self.config = config
         self.client = LLMClient(self.config)
         self.tool_registry = create_default_registry(config)
@@ -38,7 +38,9 @@ class Session:
         )        
         self.turn_count = 0     
         self.db_manager = DataBaseManager()
-        self.memory_manager = FaissMemoryStore()
+        # Only load the FAISS + HuggingFace embedding model when actually needed.
+        # The API service sets enable_memory=False to skip this entirely.
+        self.memory_manager = FaissMemoryStore() if enable_memory else None
 
     async def initialize(self) -> None:
         await self.mcp_manager.initialize()

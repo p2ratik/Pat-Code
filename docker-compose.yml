@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: patdb
+      POSTGRES_USER: pat
+      POSTGRES_PASSWORD: pat
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pat -d patdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pat-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pat-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - Pat-Code/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pat:pat@postgres:5432/patdb
+      REDIS_URL: redis://redis:6379/0
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the SQLite DB (platformdirs resolves to this path inside container)
+      - pat_sqlite_data:/root/.config/ai-agent
+    command: ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  postgres_data:
+  pat_sqlite_data:

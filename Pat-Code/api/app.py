@@ -3,11 +3,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
-from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from redis.asyncio import Redis
 
+from api.cache.conv_context import ConversationContextRepository
 from api.db.database import CloudDatabase
 from api.auth.service import AuthService
 from api.pat_service import PATService
@@ -25,17 +26,27 @@ async def lifespan(app: FastAPI):
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
 
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        raise RuntimeError("REDIS_URL environment variable is required")
+
+    logger.info("Validating database schema before starting API")
     db = CloudDatabase(database_url)
     await db.initialize()
+    redis = Redis.from_url(redis_url, decode_responses=True)
+    conversation_context_repo = ConversationContextRepository(db, redis)
 
     app.state.db = db
+    app.state.redis = redis
     app.state.auth_service = AuthService(db)
-    app.state.pat_service = PATService(db)
+    app.state.conversation_context_repo = conversation_context_repo
+    app.state.pat_service = PATService(db, conversation_context_repo)
 
     logger.info("PAT API started")
     yield
 
     # ── Shutdown ──
+    await redis.aclose()
     await db.shutdown()
     logger.info("PAT API shut down")
 

@@ -13,9 +13,9 @@ from db.database import Columns
 from utils.text import count_tokens
 
 class Agent:
-    def __init__(self, config:Config):
+    def __init__(self, config: Config, enable_memory: bool = True):
         self.config = config
-        self.session =  Session(self.config)
+        self.session = Session(self.config, enable_memory=enable_memory)
 
 
     async def run(self, message:str):

@@ -24,8 +24,17 @@ def set_credential(name: str, value: str) -> None:
 
 
 def get_credential(name: str) -> str | None:
-    """Return the stored credential or *None* if not set."""
-    return keyring.get_password(_SERVICE, name)
+    """Return the stored credential or *None* if not set.
+    
+    Returns None gracefully in headless/Docker environments where no
+    keyring backend is available (instead of raising an exception).
+    """
+    try:
+        return keyring.get_password(_SERVICE, name)
+    except Exception:
+        # No keyring backend available (e.g. inside a Docker container).
+        # Fall through to env-var lookup in Config.api_key / Config.base_url.
+        return None
 
 
 def delete_credential(name: str) -> bool:

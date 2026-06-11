@@ -2,7 +2,8 @@ import uuid
 import logging
 from datetime import datetime
 from pathlib import Path
-from sqlalchemy import select, desc
+from typing import Any
+from sqlalchemy import select
 
 from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType
@@ -13,15 +14,13 @@ from api.db.models import (
     UserAgentProfile, ProfileTool, Tool
 )
 from utils.text import count_tokens
-
+from api.cache.conv_context import ConversationContextRepository
 logger = logging.getLogger(__name__)
 
-REHYDRATION_RECENT_LIMIT = 20
-
-
 class PATService:
-    def __init__(self, db: CloudDatabase):
+    def __init__(self, db: CloudDatabase, conversation_context_repo: ConversationContextRepository):
         self.db = db
+        self.conversation_context_repo = conversation_context_repo
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
         # Build config from DB + env
@@ -34,16 +33,21 @@ class PATService:
         run_id = await self._create_agent_run(user_id, conversation_id, message)
 
         try:
-            # Save user message
-            await self._save_message(conversation_id, "user", message)
-
-            # Run agent
+            # Rehydrate prior conversation state before adding the new user turn.
+            # Agent.run() appends the current user message into its own context.
             final_response = ""
             events: list[AgentEvent] = []
 
-            async with Agent(config) as agent:
-                # Rehydrate conversation context
+            async with Agent(config, enable_memory=False) as agent:
                 await self._rehydrate_context(agent, conversation_id)
+
+                # Save user message after rehydration so it is not injected twice.
+                await self._save_message(conversation_id, "user", message)
+                await self.conversation_context_repo.append_message(
+                    conversation_id,
+                    role="user",
+                    content=message,
+                )
 
                 async for event in agent.run(message):
                     events.append(event)
@@ -53,6 +57,11 @@ class PATService:
 
             # Save assistant response
             await self._save_message(conversation_id, "assistant", final_response)
+            await self.conversation_context_repo.append_message(
+                conversation_id,
+                role="assistant",
+                content=final_response,
+            )
 
             # Update agent_run to completed
             step_count = sum(
@@ -200,51 +209,30 @@ class PATService:
             await session.commit()
 
     async def _rehydrate_context(self, agent: Agent, conversation_id: str):
-        async with self.db.get_session() as session:
-            # Check for summary
-            result = await session.execute(
-                select(Conversation.summary).where(
-                    Conversation.id == uuid.UUID(conversation_id)
-                )
-            )
-            row = result.first()
-            summary = row[0] if row else None
+        context = await self.conversation_context_repo.get_context(conversation_id)
+        if context["summary"]:
+            agent.session.context_manager.replace_with_summary(context["summary"])
+        self._inject_messages(agent, context["messages"])
 
-            if summary:
-                # Load summary as base context
-                agent.session.context_manager.replace_with_summary(summary)
 
-                # Also load last N messages so recent context is not lost
-                result = await session.execute(
-                    select(Message)
-                    .where(Message.conversation_id == uuid.UUID(conversation_id))
-                    .order_by(desc(Message.created_at))
-                    .limit(REHYDRATION_RECENT_LIMIT)
-                )
-                recent = list(reversed(result.scalars().all()))
-                self._inject_messages(agent, recent)
-                return
-
-            # No summary — load full message history
-            result = await session.execute(
-                select(Message)
-                .where(Message.conversation_id == uuid.UUID(conversation_id))
-                .order_by(Message.created_at)
-            )
-            messages = result.scalars().all()
-            self._inject_messages(agent, messages)
-
-    def _inject_messages(self, agent: Agent, messages: list):
+    def _inject_messages(self, agent: Agent, messages: list[dict[str, Any] | Message]):
         for msg in messages:
-            if msg.role == "user":
-                agent.session.context_manager.add_user_message(msg.content or "")
-            elif msg.role == "assistant":
+            role = msg["role"] if isinstance(msg, dict) else msg.role
+            content = msg["content"] if isinstance(msg, dict) else msg.content
+            tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else msg.tool_calls
+            tool_call_id = msg.get("tool_call_id") if isinstance(msg, dict) else msg.tool_call_id
+
+            if role == "user":
+                agent.session.context_manager.add_user_message(content or "")
+            elif role == "assistant":
                 agent.session.context_manager.add_assistant_message(
-                    msg.content, msg.tool_calls
+                    content,
+                    tool_calls,
                 )
-            elif msg.role == "tool":
+            elif role == "tool":
                 agent.session.context_manager.add_tool_result(
-                    msg.tool_call_id or "", msg.content or ""
+                    tool_call_id or "",
+                    content or "",
                 )
 
     async def _create_agent_run(self, user_id: str, conversation_id: str, message: str) -> str:

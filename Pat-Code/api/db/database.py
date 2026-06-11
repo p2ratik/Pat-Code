@@ -1,11 +1,11 @@
 import logging
 import ssl
 
-import asyncpg
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select
 from api.db.models import Base, Role
+from api.db.table_validator import ensure_tables
 
 logger = logging.getLogger(__name__)
 
@@ -26,33 +26,21 @@ class CloudDatabase:
         if query.get("sslmode") == "require":
             ssl_context = ssl.create_default_context()
 
-        self._connect_kwargs = {
-            "user": url.username,
-            "password": url.password,
-            "host": url.host,
-            "port": url.port or 5432,
-            "database": url.database,
-            "ssl": ssl_context,
-        }
+        connect_args = {}
+        if ssl_context is not None:
+            connect_args["ssl"] = ssl_context
 
-        # The ORM/session layer remains SQLAlchemy, but actual driver connections
-        # are created directly by asyncpg.
         self.engine = create_async_engine(
-            "postgresql+asyncpg://",
-            async_creator=self._connect_asyncpg,
+            database_url,
             echo=False,
             pool_size=10,
             max_overflow=5,
+            connect_args=connect_args,
         )
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
 
-    async def _connect_asyncpg(self):
-        return await asyncpg.connect(**self._connect_kwargs)
-
     async def initialize(self):
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
+        await ensure_tables(self.engine)
         await self._seed_defaults()
         logger.info("CloudDatabase initialized")
 

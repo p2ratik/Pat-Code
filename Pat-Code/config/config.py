@@ -121,13 +121,28 @@ class Config(BaseModel):
 
     @property
     def api_key(self) -> str | None:
-        """Keyring takes priority; env var is the fallback."""
-        return get_credential(APIKEY_KEY) or os.environ.get("API_KEY")
+        """Keyring takes priority; env vars are the fallback.
+        
+        Accepts both OPENAI_API_KEY (standard OpenAI convention used in .env)
+        and API_KEY (legacy name) so Docker deployments work without changes.
+        """
+        return (
+            get_credential(APIKEY_KEY)
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("API_KEY")
+        )
 
     @property
     def base_url(self) -> str | None:
-        """Keyring takes priority; env var is the fallback."""
-        return get_credential(BASEURL_KEY) or os.environ.get("BASE_URL")
+        """Keyring takes priority; env vars are the fallback.
+        
+        Accepts both OPENAI_BASE_URL (standard) and BASE_URL (legacy).
+        """
+        return (
+            get_credential(BASEURL_KEY)
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("BASE_URL")
+        )
 
     @property
     def model_name(self) -> str:
