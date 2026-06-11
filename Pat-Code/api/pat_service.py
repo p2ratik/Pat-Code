@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType
+from api.cloud_runtime import CloudAgentRuntime
 from config.config import Config, ModelConfig, ApprovalPolicy
 from api.db.database import CloudDatabase
 from api.db.models import (
@@ -18,9 +19,17 @@ from api.cache.conv_context import ConversationContextRepository
 logger = logging.getLogger(__name__)
 
 class PATService:
-    def __init__(self, db: CloudDatabase, conversation_context_repo: ConversationContextRepository):
+    def __init__(
+        self,
+        db: CloudDatabase,
+        conversation_context_repo: ConversationContextRepository,
+        base_tool_registry=None,
+        # Phase 4: event_bus: EventBus | None = None,
+        # Phase 5: qdrant: AsyncQdrantClient | None = None,
+    ):
         self.db = db
         self.conversation_context_repo = conversation_context_repo
+        self.base_tool_registry = base_tool_registry  # shared singleton, never rebuilt per-request
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
         # Build config from DB + env
@@ -38,7 +47,7 @@ class PATService:
             final_response = ""
             events: list[AgentEvent] = []
 
-            async with Agent(config, enable_memory=False) as agent:
+            async with Agent(config, runtime=CloudAgentRuntime.build(config, base_registry=self.base_tool_registry)) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 
                 # Save user message after rehydration so it is not injected twice.
@@ -211,7 +220,7 @@ class PATService:
     async def _rehydrate_context(self, agent: Agent, conversation_id: str):
         context = await self.conversation_context_repo.get_context(conversation_id)
         if context["summary"]:
-            agent.session.context_manager.replace_with_summary(context["summary"])
+            agent.runtime.context_manager.replace_with_summary(context["summary"])
         self._inject_messages(agent, context["messages"])
 
 
@@ -223,14 +232,14 @@ class PATService:
             tool_call_id = msg.get("tool_call_id") if isinstance(msg, dict) else msg.tool_call_id
 
             if role == "user":
-                agent.session.context_manager.add_user_message(content or "")
+                agent.runtime.context_manager.add_user_message(content or "")
             elif role == "assistant":
-                agent.session.context_manager.add_assistant_message(
+                agent.runtime.context_manager.add_assistant_message(
                     content,
                     tool_calls,
                 )
             elif role == "tool":
-                agent.session.context_manager.add_tool_result(
+                agent.runtime.context_manager.add_tool_result(
                     tool_call_id or "",
                     content or "",
                 )

@@ -13,6 +13,8 @@ from api.db.database import CloudDatabase
 from api.auth.service import AuthService
 from api.pat_service import PATService
 from api.routes import users, chat
+from config.config import Config, ModelConfig, ApprovalPolicy
+from tools.registry import create_default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,23 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis
     app.state.auth_service = AuthService(db)
     app.state.conversation_context_repo = conversation_context_repo
-    app.state.pat_service = PATService(db, conversation_context_repo)
+
+    # Build the base tool registry ONCE at startup.
+    # Per-request runtimes filter this instead of re-scanning builtins.
+    # Phase 4: add event_bus=EventBus() here.
+    # Phase 5: add qdrant=AsyncQdrantClient() here.
+    base_config = Config(
+        model=ModelConfig(name="gpt-4.1-mini"),
+        cwd=Path.cwd(),
+        approval=ApprovalPolicy.AUTO,
+    )
+    app.state.base_tool_registry = create_default_registry(base_config)
+
+    app.state.pat_service = PATService(
+        db=db,
+        conversation_context_repo=conversation_context_repo,
+        base_tool_registry=app.state.base_tool_registry,
+    )
 
     logger.info("PAT API started")
     yield

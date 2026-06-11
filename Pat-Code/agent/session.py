@@ -51,6 +51,12 @@ class Session:
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
         )
+
+    async def shutdown(self) -> None:
+        """Satisfy AgentRuntime protocol: tear down MCP + HTTP client."""
+        await self.client.close()
+        await self.mcp_manager.shutdown()
+
         
     def _load_memory(self) -> str | None:
         data_dir = get_data_dir()
