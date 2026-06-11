@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from api.auth.models import UserCreate, UserResponse, TokenResponse, RoleAssign
+from api.auth.models import (
+    UserCreate, UserResponse, TokenResponse, RoleAssign,
+    ProfileAssign, ProfileResponse,
+)
 from api.auth.dependencies import get_current_user
 
 router = APIRouter(tags=["users"])
@@ -38,7 +41,7 @@ async def assign_role(
     auth_service = request.app.state.auth_service
 
     try:
-        await auth_service.assign_role(user_id, body.role_name)
+        await auth_service.assign_role(user_id, body.role_name, assigned_by=current_user["id"])
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
@@ -57,3 +60,43 @@ async def generate_token(user_id: str, request: Request):
 
     token = auth_service.create_token(user_id)
     return TokenResponse(access_token=token)
+
+
+# ------------------------------------------------------------------
+# Phase 2: Profile assignment
+# ------------------------------------------------------------------
+
+@router.get("/{user_id}/profile", response_model=ProfileResponse | None)
+async def get_user_profile(
+    user_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    auth_service = request.app.state.auth_service
+    profile = await auth_service.get_user_profile(user_id)
+
+    if not profile:
+        return None
+
+    return ProfileResponse(**profile)
+
+
+@router.post("/{user_id}/profile")
+async def assign_profile(
+    user_id: str,
+    body: ProfileAssign,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    auth_service = request.app.state.auth_service
+
+    # Only admins can assign profiles to other users
+    if user_id != current_user["id"] and not await auth_service.has_admin_role(current_user["id"]):
+        raise HTTPException(status_code=403, detail="Only admins can assign profiles to other users")
+
+    try:
+        await auth_service.assign_profile(user_id, body.profile_id, assigned_by=current_user["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"detail": f"Profile assigned to user {user_id}"}

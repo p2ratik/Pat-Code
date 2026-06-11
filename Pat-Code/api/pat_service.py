@@ -10,12 +10,10 @@ from agent.events import AgentEvent, AgentEventType
 from api.cloud_runtime import CloudAgentRuntime
 from config.config import Config, ModelConfig, ApprovalPolicy
 from api.db.database import CloudDatabase
-from api.db.models import (
-    Conversation, Message, AgentRun, AgentProfile, 
-    UserAgentProfile, ProfileTool, Tool
-)
+from api.db.models import Conversation, Message, AgentRun
 from utils.text import count_tokens
 from api.cache.conv_context import ConversationContextRepository
+
 logger = logging.getLogger(__name__)
 
 class PATService:
@@ -23,12 +21,14 @@ class PATService:
         self,
         db: CloudDatabase,
         conversation_context_repo: ConversationContextRepository,
+        auth_service=None,
         base_tool_registry=None,
         # Phase 4: event_bus: EventBus | None = None,
         # Phase 5: qdrant: AsyncQdrantClient | None = None,
     ):
         self.db = db
         self.conversation_context_repo = conversation_context_repo
+        self.auth_service = auth_service  # Phase 2: delegates profile/tool resolution
         self.base_tool_registry = base_tool_registry  # shared singleton, never rebuilt per-request
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
@@ -90,8 +90,17 @@ class PATService:
             raise
 
     async def _build_config(self, user_id: str) -> Config:
-        profile = await self._get_user_profile(user_id)
-        allowed_tools = await self._get_allowed_tools(user_id)
+        """Build a per-request Config from DB.
+
+        Delegates to AuthService for profile + tool resolution.
+        AuthService handles admin bypass (admins see all tools).
+        """
+        profile = None
+        allowed_tools = None
+
+        if self.auth_service:
+            profile = await self.auth_service.get_user_profile(user_id)
+            allowed_tools = await self.auth_service.get_allowed_tools(user_id)
 
         model_name = profile["model_name"] if profile else "gpt-4.1-mini"
         temperature = profile["temperature"] if profile else 0.7
@@ -106,53 +115,6 @@ class PATService:
         )
 
         return config
-
-    async def _get_user_profile(self, user_id: str) -> dict | None:
-        async with self.db.get_session() as session:
-            result = await session.execute(
-                select(AgentProfile)
-                .join(UserAgentProfile, UserAgentProfile.profile_id == AgentProfile.id)
-                .where(UserAgentProfile.user_id == uuid.UUID(user_id))
-                .where(AgentProfile.is_active == True)
-                .limit(1)
-            )
-            profile = result.scalar_one_or_none()
-            if not profile:
-                return None
-
-            return {
-                "id": str(profile.id),
-                "model_name": profile.model_name,
-                "temperature": profile.temperature,
-                "max_turns": profile.max_turns,
-            }
-
-    async def _get_allowed_tools(self, user_id: str) -> list[str] | None:
-        async with self.db.get_session() as session:
-            # Get profile for user
-            result = await session.execute(
-                select(AgentProfile.id)
-                .join(UserAgentProfile, UserAgentProfile.profile_id == AgentProfile.id)
-                .where(UserAgentProfile.user_id == uuid.UUID(user_id))
-                .where(AgentProfile.is_active == True)
-                .limit(1)
-            )
-            profile_row = result.first()
-            if not profile_row:
-                return None  # No profile = all tools (default)
-
-            profile_id = profile_row[0]
-
-            # Get tool names from profile_tools
-            result = await session.execute(
-                select(Tool.name)
-                .join(ProfileTool, ProfileTool.tool_id == Tool.id)
-                .where(ProfileTool.profile_id == profile_id)
-            )
-            tool_names = [row[0] for row in result.all()]
-
-            # Empty list means no tools configured for this profile — allow all
-            return tool_names if tool_names else None
 
     async def _resolve_conversation(self, user_id: str, conversation_id: str | None) -> str:
         """Return a valid conversation_id owned by user_id.

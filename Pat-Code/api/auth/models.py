@@ -41,3 +41,43 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     conversation_id: str
     response: str
+
+
+# ------------------------------------------------------------------
+# Phase 2: Agent Profiles + Tool Authorization
+# ------------------------------------------------------------------
+
+class ProfileCreate(BaseModel):
+    name: str
+    model_name: str = "gpt-4.1-mini"
+    temperature: float = 0.7
+    max_turns: int = 100
+    description: str | None = None
+
+
+class ProfileResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    model_name: str
+    temperature: float
+    max_turns: int
+    version: int
+
+    model_config = {"from_attributes": True}
+
+
+class ProfileAssign(BaseModel):
+    profile_id: str
+
+
+class ToolResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class ProfileToolsAssign(BaseModel):
+    tool_names: list[str]

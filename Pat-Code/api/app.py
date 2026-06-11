@@ -12,7 +12,7 @@ from api.cache.conv_context import ConversationContextRepository
 from api.db.database import CloudDatabase
 from api.auth.service import AuthService
 from api.pat_service import PATService
-from api.routes import users, chat
+from api.routes import users, chat, profiles, tools
 from config.config import Config, ModelConfig, ApprovalPolicy
 from tools.registry import create_default_registry
 
@@ -38,9 +38,10 @@ async def lifespan(app: FastAPI):
     redis = Redis.from_url(redis_url, decode_responses=True)
     conversation_context_repo = ConversationContextRepository(db, redis)
 
+    auth_service = AuthService(db)
     app.state.db = db
     app.state.redis = redis
-    app.state.auth_service = AuthService(db)
+    app.state.auth_service = auth_service
     app.state.conversation_context_repo = conversation_context_repo
 
     # Build the base tool registry ONCE at startup.
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
     app.state.pat_service = PATService(
         db=db,
         conversation_context_repo=conversation_context_repo,
+        auth_service=auth_service,
         base_tool_registry=app.state.base_tool_registry,
     )
 
@@ -93,6 +95,8 @@ app.add_middleware(
 
 app.include_router(users.router, prefix="/users")
 app.include_router(chat.router, prefix="/chat")
+app.include_router(profiles.router, prefix="/profiles")
+app.include_router(tools.router, prefix="/tools")
 
 
 @app.get("/health", tags=["health"])
