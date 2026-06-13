@@ -101,7 +101,24 @@ scopes = [
 url = "https://app.eraser.io/api/mcp"
 transport = "streamable-http"
 startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
-enabled = true
+enabled = false
 
 [mcp_servers.eraser.oauth]
+# Leave client_id / client_secret empty — fastmcp does full discovery
+
+# ── Notion MCP ────────────────────────────────────────────────────────────────
+# Prerequisites:
+#   1. The Notion MCP server uses its OWN OAuth — no client_id/secret needed.
+#   2. On first run the agent opens a browser for Notion consent.
+#      Your token is cached automatically — subsequent runs are silent.
+#   3. Make sure the Notion integration has the pages you want to access.
+# ──────────────────────────────────────────────────────────────────────────────
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+transport = "streamable-http"
+startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
+enabled = true
+
+[mcp_servers.notion.oauth]
 # Leave client_id / client_secret empty — fastmcp does full discovery

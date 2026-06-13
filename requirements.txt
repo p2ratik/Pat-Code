@@ -7,6 +7,7 @@ platformdirs>=4.0.0
 tiktoken>=0.7.0
 fastmcp>=2.0.0
 ddgs>=9.0.0
+redis>=5.0.0
 tomli>=2.0.0; python_version < "3.11"
 
 faiss-cpu==1.13.2

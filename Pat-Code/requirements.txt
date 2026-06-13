@@ -1,0 +1,24 @@
+# Core API dependencies
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
+# Database ORM and async driver
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.30.0
+
+# JWT handling
+PyJWT>=2.8.0
+
+# Cryptography for future MCP token encryption (optional now)
+cryptography>=43.0.0
+
+# OpenAI client (used by the Agent)
+openai>=1.0.0
+
+# Optional vector store client (Phase 5) – can be installed when needed
+# qdrant-client>=1.12.0
+
+# Misc utilities (already in stdlib, listed for completeness)
+# pydantic (bundled with FastAPI)
+# python-dotenv (if you load .env files)
+python-dotenv>=1.0.0

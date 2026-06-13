@@ -19,7 +19,10 @@ class Columns:
 class DataBaseManager():
 
     def __init__(self):
-        self.file_path : Path | None = get_config_dir() / DB_LOGS
+        self.file_path : Path = get_config_dir() / DB_LOGS
+        # Ensure the parent directory exists (critical for Docker containers
+        # where platformdirs paths like /root/.config/ai-agent may not exist yet)
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = self._get_connection()
         self._initiliaze_db()
 
