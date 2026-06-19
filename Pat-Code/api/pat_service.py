@@ -50,6 +50,11 @@ class PATService:
             async with Agent(config, runtime=CloudAgentRuntime.build(config, base_registry=self.base_tool_registry)) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 
+                # Snapshot: if rehydration loaded a previous summary, it sets
+                # _compacted_summary. We record this so post-run we can detect
+                # if a NEW compaction happened (summary changed).
+                pre_run_summary = agent.runtime.context_manager._compacted_summary
+
                 # Save user message after rehydration so it is not injected twice.
                 await self._save_message(conversation_id, "user", message)
                 await self.conversation_context_repo.append_message(
@@ -64,6 +69,9 @@ class PATService:
                     if event.type == AgentEventType.TEXT_COMPLETE:
                         final_response = event.data.get("content", "")
 
+                # Read BEFORE async with exits — __aexit__ sets runtime = None
+                post_run_summary = agent.runtime.context_manager._compacted_summary
+
             # Save assistant response
             await self._save_message(conversation_id, "assistant", final_response)
             await self.conversation_context_repo.append_message(
@@ -71,6 +79,13 @@ class PATService:
                 role="assistant",
                 content=final_response,
             )
+
+            # Persist compaction summary if compression happened during the run.
+            # The agentic loop calls context_manager.replace_with_summary() when
+            # context overflows 80% of the model's context window. That wipes the
+            # in-memory messages but never persists — we must catch it here.
+            if post_run_summary and post_run_summary != pre_run_summary:
+                await self._persist_summary(conversation_id, post_run_summary)
 
             # Update agent_run to completed
             step_count = sum(
@@ -205,6 +220,26 @@ class PATService:
                     tool_call_id or "",
                     content or "",
                 )
+
+    async def _persist_summary(self, conversation_id: str, summary: str):
+        """Write compaction summary to PostgreSQL + Redis cache.
+
+        Called after a run where the agentic loop compressed context.
+        Without this, the summary is lost and the next request starts fresh.
+        """
+        # PostgreSQL — conversations.summary
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(Conversation).where(Conversation.id == uuid.UUID(conversation_id))
+            )
+            conv = result.scalar_one_or_none()
+            if conv:
+                conv.summary = summary
+                await session.commit()
+                logger.info(f"Persisted compaction summary for conversation {conversation_id}")
+
+        # Redis cache
+        await self.conversation_context_repo.update_summary(conversation_id, summary)
 
     async def _create_agent_run(self, user_id: str, conversation_id: str, message: str) -> str:
         async with self.db.get_session() as session:

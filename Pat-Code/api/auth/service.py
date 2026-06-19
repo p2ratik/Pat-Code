@@ -34,14 +34,18 @@ class AuthService:
             await session.commit()
             await session.refresh(user)
 
-            return {
-                "id": str(user.id),
-                "email": user.email,
-                "display_name": user.display_name,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-                "roles": [],
-            }
+        # Auto-assign the default_user profile (secure-by-default).
+        # Every user starts with a restricted tool set. Admins can upgrade.
+        await self._assign_default_profile(str(user.id))
+
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "display_name": user.display_name,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat(),
+            "roles": [],
+        }
 
     async def get_user(self, user_id: str) -> dict | None:
         async with self.db.get_session() as session:
@@ -148,6 +152,35 @@ class AuthService:
                 "is_active": profile.is_active,
             }
 
+    async def _assign_default_profile(self, user_id: str) -> None:
+        """Silently assign the seeded 'default_user' profile to a new user.
+
+        If the default profile doesn't exist yet (e.g. seeding not done),
+        log a warning and continue — create_user still succeeds, but the user
+        will have no tools (fail-closed) until an admin assigns a profile.
+        """
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(AgentProfile).where(
+                    AgentProfile.name == "default_user",
+                    AgentProfile.is_active == True,
+                )
+            )
+            profile = result.scalar_one_or_none()
+
+        if not profile:
+            logger.warning(
+                f"Default profile 'default_user' not found — user {user_id} "
+                f"has no tools. Run seed or assign a profile manually."
+            )
+            return
+
+        # Use existing assign_profile logic (handles dedup + audit log)
+        try:
+            await self.assign_profile(user_id, str(profile.id), assigned_by=user_id)
+        except Exception as e:
+            logger.warning(f"Failed to auto-assign default profile to {user_id}: {e}")
+
     async def assign_profile(self, user_id: str, profile_id: str, assigned_by: str | None = None):
         """Assign an agent profile to a user. Replaces any existing assignment."""
         async with self.db.get_session() as session:
@@ -247,8 +280,12 @@ class AuthService:
               user → user_agent_profiles → agent_profiles → profile_tools → tools
 
         Returns:
-            None  = all tools allowed (admin, or no profile/tools configured)
+            None  = all tools allowed (admins only)
+            []    = no tools (no profile assigned, or profile has no tools)
             list  = only these tool names are visible to the model
+
+        SECURITY: Fail-closed. No profile → empty list, not all tools.
+        Bug in profile assignment → user gets no tools, not all tools.
         """
         # Admin bypass — admins see everything
         if await self.has_admin_role(user_id):
@@ -265,7 +302,9 @@ class AuthService:
             )
             profile_row = result.first()
             if not profile_row:
-                return None  # No profile assigned = default (all tools)
+                # No profile assigned → deny all tools (fail-closed)
+                logger.warning(f"User {user_id} has no agent profile — denying all tools")
+                return []
 
             profile_id = profile_row[0]
 
@@ -277,8 +316,12 @@ class AuthService:
             )
             tool_names = [row[0] for row in result.all()]
 
-            # Empty tool list = no restrictions configured for this profile
-            return tool_names if tool_names else None
+            # Empty profile_tools → deny all (profile exists but no tools configured)
+            if not tool_names:
+                logger.warning(f"User {user_id} profile has no tools configured — denying all tools")
+                return []
+
+            return tool_names
 
     async def get_profile_tools(self, profile_id: str) -> list[dict]:
         """Get tools assigned to a specific profile."""

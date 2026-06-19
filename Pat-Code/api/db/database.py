@@ -4,7 +4,7 @@ import ssl
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select
-from api.db.models import Base, Role, Tool
+from api.db.models import Base, Role, Tool, AgentProfile, ProfileTool
 from api.db.table_validator import ensure_tables
 
 logger = logging.getLogger(__name__)
@@ -63,41 +63,125 @@ class CloudDatabase:
                 logger.info("Seeded default roles")
 
         await self._seed_tools()
+        await self._seed_default_profile()
 
     async def _seed_tools(self):
         """Seed the tools table with all builtin tool names.
 
         These names are the canonical reference for profile_tools. They must
         match exactly what create_default_registry() registers.
+        Idempotent: skips tools that already exist by name.
         """
-        # Import here to avoid circular imports at module level
-        from tools.builtins import get_all_builtin_tools
-        from tools.subagents import get_default_subagent_definitions
-
-        async with self.session_factory() as session:
-            result = await session.execute(select(Tool).limit(1))
-            if result.scalar():
-                return  # already seeded
-
-            # Builtin tools — instantiate with a dummy config to read .name
+        try:
+            from tools.builtins import get_all_builtin_tools
+            from tools.subagents import get_default_subagent_definitions, SubagentTool
             from config.config import Config, ModelConfig, ApprovalPolicy
             from pathlib import Path
+        except ImportError as e:
+            logger.warning(f"Cannot seed tools — import failed: {e}")
+            return
 
-            dummy_config = Config(
-                model=ModelConfig(name="gpt-4.1-mini"),
-                cwd=Path.cwd(),
-                approval=ApprovalPolicy.AUTO,
-            )
+        dummy_config = Config(
+            model=ModelConfig(name="gpt-4.1-mini"),
+            cwd=Path.cwd(),
+            approval=ApprovalPolicy.AUTO,
+        )
 
-            for tool_cls in get_all_builtin_tools():
+        # Collect tool name → description
+        tools_to_seed: dict[str, str] = {}
+
+        for tool_cls in get_all_builtin_tools():
+            try:
                 tool_instance = tool_cls(dummy_config)
-                session.add(Tool(name=tool_instance.name, description=tool_instance.description))
+                tools_to_seed[tool_instance.name] = tool_instance.description or ""
+            except Exception as e:
+                logger.warning(f"Skipping tool {tool_cls.__name__}: {e}")
 
-            # Subagent tools
-            from tools.subagents import SubagentTool
-            for subagent_def in get_default_subagent_definitions():
+        for subagent_def in get_default_subagent_definitions():
+            try:
                 sub = SubagentTool(dummy_config, subagent_def)
-                session.add(Tool(name=sub.name, description=sub.description))
+                tools_to_seed[sub.name] = sub.description or ""
+            except Exception as e:
+                logger.warning(f"Skipping subagent: {e}")
+
+        if not tools_to_seed:
+            logger.warning("No tools found to seed")
+            return
+
+        async with self.session_factory() as session:
+            # Check which tools already exist
+            result = await session.execute(select(Tool.name))
+            existing_names = {row[0] for row in result.all()}
+
+            new_tools = {
+                name: desc for name, desc in tools_to_seed.items()
+                if name not in existing_names
+            }
+
+            if not new_tools:
+                logger.debug("All tools already seeded")
+                return
+
+            for name, description in new_tools.items():
+                session.add(Tool(name=name, description=description))
 
             await session.commit()
-            logger.info("Seeded builtin tools into tools table")
+            logger.info(f"Seeded {len(new_tools)} tools into tools table: {sorted(new_tools.keys())}")
+
+    # Safe tool subset given to every new user by default.
+    # Read + search only — no shell, no write, no apply_patch.
+    DEFAULT_USER_TOOLS = [
+        "read_file",
+        "list_dir",
+        "grep",
+        "glob",
+        "web_search",
+        "web_fetch",
+    ]
+
+    async def _seed_default_profile(self):
+        """Seed the 'default_user' agent profile with a safe read-only tool set.
+
+        This profile is auto-assigned to every new user in AuthService.create_user().
+        Idempotent — skips if already seeded.
+        """
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(AgentProfile).where(AgentProfile.name == "default_user")
+            )
+            if result.scalar_one_or_none():
+                logger.debug("Default user profile already seeded")
+                return
+
+            # Create the profile
+            profile = AgentProfile(
+                name="default_user",
+                description="Default profile for new users. Read/search access only.",
+                model_name="gpt-4.1-mini",
+                temperature=0.7,
+                max_turns=50,
+                version=1,
+                is_active=True,
+            )
+            session.add(profile)
+            await session.flush()  # get profile.id before committing
+
+            # Look up the safe tool subset and assign them
+            result = await session.execute(
+                select(Tool).where(Tool.name.in_(self.DEFAULT_USER_TOOLS))
+            )
+            found_tools = result.scalars().all()
+
+            for tool in found_tools:
+                session.add(ProfileTool(profile_id=profile.id, tool_id=tool.id))
+
+            await session.commit()
+
+            found_names = [t.name for t in found_tools]
+            missing = set(self.DEFAULT_USER_TOOLS) - set(found_names)
+            if missing:
+                logger.warning(f"Default profile: some tools not found in DB: {missing}")
+
+            logger.info(
+                f"Seeded default_user profile with tools: {sorted(found_names)}"
+            )

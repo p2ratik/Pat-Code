@@ -46,6 +46,7 @@ class ContextManager:
         self._system_prompt = get_system_prompt(config=config, user_memory=user_memory, tools = tools)
         self._latest_usage = TokenUsage()
         self.total_usage = TokenUsage()
+        self._compacted_summary: str | None = None  # set by replace_with_summary()
 
     @property
     def message_count(self) -> int:
@@ -110,6 +111,7 @@ class ContextManager:
 
     def replace_with_summary(self, summary: str) -> None:
         self._messages = []
+        self._compacted_summary = summary
 
         continuation_content = f"""# Context Restoration (Previous Session Compacted)
 

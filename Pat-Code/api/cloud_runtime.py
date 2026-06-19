@@ -62,9 +62,20 @@ class ToolRegistryView:
         return [t.to_openai_schema() for t in self.get_tools()]
 
     def get(self, name: str):
+        # Allow lookup only for tools this view is authorized to use
+        if self.config.allowed_tools and name not in set(self.config.allowed_tools):
+            return None
         return self._base.get(name)
 
     async def invoke(self, name, params, cwd, session, approval_manager=None):
+        # Defense in depth: block execution even if the LLM hallucinates
+        # a tool name that wasn't in the filtered schemas.
+        if self.config.allowed_tools and name not in set(self.config.allowed_tools):
+            from tools.base import ToolResult
+            return ToolResult.error_result(
+                error=f"Tool '{name}' is not authorized for this user profile.",
+                metadata={"tool_name": name},
+            )
         return await self._base.invoke(name, params, cwd, session, approval_manager)
 
 

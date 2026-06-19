@@ -44,11 +44,22 @@ Persist conversation summary if compressed
 Return response
 ```
 
-The `conversations.summary` column stores compressed context. When message history is too large, the summary is loaded instead of full history.
+The `conversations.summary` column stores compressed context. When a summary exists, load **summary + last N messages** (not summary alone) to preserve recent context.
+
+```
+Summary exists?
+     ↓ YES                    ↓ NO
+Load summary              Load full message history
++                         → inject into ContextManager
+Load last 20 messages
+→ inject both into ContextManager
+```
 
 Implementation in PATService:
 
 ```python
+REHYDRATION_RECENT_LIMIT = 20
+
 async def _rehydrate_context(self, agent: Agent, conversation_id: str):
     """Load previous messages into ContextManager before running."""
     conversation = await self.db.fetchrow(
@@ -56,26 +67,37 @@ async def _rehydrate_context(self, agent: Agent, conversation_id: str):
     )
 
     if conversation["summary"]:
-        # Conversation was previously compressed — use summary
+        # Load summary as base context
         agent.session.context_manager.replace_with_summary(conversation["summary"])
+
+        # ALSO load last N messages so recent context is not lost
+        recent = await self.db.fetch(
+            "SELECT role, content, tool_call_id, tool_calls FROM messages "
+            "WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2",
+            conversation_id, self.REHYDRATION_RECENT_LIMIT
+        )
+        recent.reverse()  # chronological order
+        self._inject_messages(agent, recent)
         return
 
-    # Load full message history
+    # No summary — load full message history
     messages = await self.db.fetch(
         "SELECT role, content, tool_call_id, tool_calls FROM messages "
         "WHERE conversation_id = $1 ORDER BY created_at", conversation_id
     )
+    self._inject_messages(agent, messages)
 
+def _inject_messages(self, agent: Agent, messages: list):
     for msg in messages:
         if msg["role"] == "user":
             agent.session.context_manager.add_user_message(msg["content"])
         elif msg["role"] == "assistant":
             agent.session.context_manager.add_assistant_message(
-                msg["content"], msg["tool_calls"]
+                msg["content"], msg["tool_calls"]  # requires JSONB column
             )
         elif msg["role"] == "tool":
             agent.session.context_manager.add_tool_result(
-                msg["tool_call_id"], msg["content"]
+                msg["tool_call_id"], msg["content"]  # requires tool_call_id column
             )
 ```
 
@@ -113,14 +135,17 @@ Not implemented now. But the internal methods are named to make this split trivi
 
 ## Phase 1: Postgres + Users + PATService + Chat API
 
+### ORM: SQLAlchemy (async)
+
+Use SQLAlchemy with `asyncpg` driver. Matches the directness of the existing codebase — no magic, explicit queries.
+
 ### Files to Create
 
 #### `api/db/models.py`
-All V1 table definitions as raw SQL (from `db_design.md`).
+SQLAlchemy ORM models (from `db_design.md`). All V1 tables:
 
-V1 tables:
 - `users`, `roles`, `user_roles`
-- `conversations`, `messages`
+- `conversations`, `messages` (messages includes `tool_call_id TEXT`, `tool_calls JSONB`)
 - `memories`
 - `agent_profiles`, `user_agent_profiles`
 - `prompts`
@@ -131,34 +156,30 @@ V1 tables:
 
 Postponed: `user_channels`, `files`, `artifacts`, `agent_checkpoints`
 
+> **messages table note**: Must include `tool_call_id TEXT NULL` and `tool_calls JSONB NULL` columns — required for conversation rehydration to reconstruct assistant tool calls.
+
 Seed data function for roles (`super_admin`, `admin`, `user`, `premium`) and default agent profiles.
 
-#### `api/db/postgres.py`
+#### `api/db/database.py`
 ```python
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
 class CloudDatabase:
     def __init__(self, database_url: str):
-        self.database_url = database_url
-        self.pool = None
+        # Convert postgresql:// to postgresql+asyncpg://
+        self.engine = create_async_engine(database_url)
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
 
     async def initialize(self):
-        self.pool = await asyncpg.create_pool(self.database_url)
-        await self._run_schema()
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
         await self._seed_defaults()
 
     async def shutdown(self):
-        await self.pool.close()
+        await self.engine.dispose()
 
-    async def execute(self, query, *args):
-        async with self.pool.acquire() as conn:
-            return await conn.execute(query, *args)
-
-    async def fetch(self, query, *args):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch(query, *args)
-
-    async def fetchrow(self, query, *args):
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+    def get_session(self) -> AsyncSession:
+        return self.session_factory()
 ```
 
 #### `api/auth/service.py`
@@ -199,13 +220,33 @@ class PATService:
         # 1. Load user + profile → get allowed_tools
         # 2. Build Config from DB (agent_profiles) + env vars
         # 3. Create/load conversation
-        # 4. Create Agent
-        # 5. Rehydrate context from previous messages
-        # 6. Run agent.run(message), collect events
-        # 7. Persist new messages
-        # 8. If compression happened, persist summary
-        # 9. Record agent_run
-        # 10. Return final response
+        # 4. Create agent_run record with status="running" BEFORE agent starts
+        # 5. Create Agent
+        # 6. Rehydrate context (summary + last N messages)
+        # 7. Run agent.run(message), collect events
+        # 8. Persist new messages (with tool_call_id + tool_calls)
+        # 9. If compression happened, persist summary
+        # 10. Update agent_run status="completed"
+        # 11. Return final response
+        #
+        # On exception: update agent_run status="failed", error_message=str(e)
+
+        run_id = await self._create_agent_run(user_id, conversation_id, message)
+        try:
+            ...  # steps 5-9
+            await self._update_agent_run(run_id, status="completed", response=final_response)
+        except Exception as e:
+            await self._update_agent_run(run_id, status="failed", error=str(e))
+            raise
+
+    async def _create_agent_run(self, user_id, conversation_id, message) -> str:
+        # INSERT INTO agent_runs (status='running', started_at=now())
+        # Returns run_id
+        ...
+
+    async def _update_agent_run(self, run_id, status, response=None, error=None):
+        # UPDATE agent_runs SET status=$1, completed_at=now(), final_response=$2, error_message=$3
+        ...
 
     async def _build_config(self, user_id) -> Config:
         # Load agent_profile for user
@@ -215,7 +256,7 @@ class PATService:
         # approval = ApprovalPolicy.AUTO for API mode
 
     async def _rehydrate_context(self, agent, conversation_id):
-        # Load summary or full messages → inject into ContextManager
+        # Load summary + last N messages → inject into ContextManager
 
     async def _get_allowed_tools(self, user_id) -> list[str] | None:
         # profile → profile_tools → tool names
@@ -244,6 +285,7 @@ app = FastAPI(title="PAT API", lifespan=lifespan)
 
 ### Dependencies to Add
 ```
+sqlalchemy[asyncio]>=2.0.0
 asyncpg>=0.30.0
 PyJWT>=2.8.0
 fastapi>=0.115.0
@@ -297,10 +339,12 @@ Config(allowed_tools=["read_file", "grep", "memory"])
      ↓
 ToolRegistry.get_tools() filters by config.allowed_tools  ← ALREADY EXISTS
      ↓
+ToolRegistry.get_schemas() calls get_tools()              ← ALREADY EXISTS
+     ↓
 Model only sees authorized tools
 ```
 
-Zero changes to ToolRegistry. Zero changes to Agent.
+**Verified**: `ToolRegistry.get_tools()` (registry.py:57-59) already filters by `config.allowed_tools`. `get_schemas()` (registry.py:64-65) calls `get_tools()`. Both builtins and MCP tools are filtered. Security chain is complete — zero changes needed.
 
 ### Audit Actions
 Record to `audit_logs`:
@@ -338,11 +382,16 @@ class CloudMCPService:
         # Update status: disconnected
         ...
 
+    async def disable_for_user(self, user_id, server_name):
+        # Update status: disabled
+        ...
+
     async def get_user_connections(self, user_id) -> list[dict]:
         ...
 
     async def build_mcp_configs(self, user_id) -> dict[str, MCPServerConfig]:
         """Bridge: DB records → Config.mcp_servers dict.
+        Only loads connections with status='connected'.
         MCPManager reads Config.mcp_servers as-is."""
         ...
 ```
@@ -354,6 +403,17 @@ POST /mcp/disconnect    → disconnect MCP for user
 GET  /mcp/list          → list available MCP servers
 GET  /mcp/status        → user's connection statuses
 ```
+
+### MCP Connection Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `connected` | Active, tokens valid |
+| `expired` | Token expired, needs refresh |
+| `error` | Connection failed |
+| `refresh_required` | Refresh token available but access token expired |
+| `disabled` | Manually disabled by user/admin |
+| `disconnected` | User disconnected |
 
 ### MCP OAuth — Defined But Deferred
 
@@ -367,9 +427,11 @@ Future OAuth lifecycle (documented, not built):
 ```
 Consent → callback → store encrypted tokens
          ↓
-Token expires → check expires_at → refresh using refresh_token
+Token expires → check expires_at → set status = "refresh_required"
          ↓
-Refresh fails → set connection status = "expired"
+Refresh attempt → success → status = "connected"
+         ↓
+Refresh fails → status = "expired"
          ↓
 Key rotation → re-encrypt all tokens with new key
 ```
@@ -415,16 +477,17 @@ class EventBus:
         for sub in self._subscribers:
             try:
                 await sub.handle(event, context)
-            except Exception:
-                pass  # Never break agent flow
+            except Exception as e:
+                logger.exception(f"EventBus subscriber {sub.__class__.__name__} failed: {e}")
+                # Never break agent flow, but always log
 
     async def flush_all(self):
         """Flush all subscriber buffers. Called once after agent completes."""
         for sub in self._subscribers:
             try:
                 await sub.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception(f"EventBus flush failed for {sub.__class__.__name__}: {e}")
 ```
 
 #### `api/events/subscribers.py`
@@ -488,19 +551,26 @@ await self.event_bus.flush_all()
 Post-processing only runs when warranted:
 
 ```python
-def _should_run_post_processing(self, events: list[AgentEvent]) -> bool:
+MEMORY_MIN_MESSAGE_THRESHOLD = 3
+
+def _should_run_post_processing(self, events: list[AgentEvent], messages: list[dict]) -> bool:
     tool_used = any(e.type == AgentEventType.TOOL_CALL_COMPLETE for e in events)
     has_failure = any(
         e.type == AgentEventType.TOOL_CALL_COMPLETE and not e.data.get("success")
         for e in events
     )
-    message_count = sum(1 for e in events if e.type == AgentEventType.TEXT_COMPLETE)
+    conversation_length = len(messages)
 
-    # Skip post-processing for trivial conversations
-    if not tool_used and message_count <= 1:
-        return False
+    # Always run if tools were used or failures occurred
+    if tool_used or has_failure:
+        return True
 
-    return True
+    # Run if conversation is long enough (user may share personal facts
+    # like "my birthday is June 15" without triggering tools)
+    if conversation_length >= self.MEMORY_MIN_MESSAGE_THRESHOLD:
+        return True
+
+    return False
 ```
 
 ### Memory Importance Scoring
@@ -545,30 +615,35 @@ async def summarize_task(client: LLMClient, events: list[AgentEvent], response: 
     ...
 ```
 
-### Memory Storage — Dedicated Vector Store
+### Memory Storage — Qdrant + PostgreSQL
 
-Memory search uses Qdrant or Pinecone (not pgvector, not pg_trgm).
+Qdrant for embeddings/similarity search. PostgreSQL `memories` table for metadata, traceability, importance scores.
 
 #### `api/memory/cloud_memory.py`
 ```python
-class CloudMemoryStore:
-    """PostgreSQL for metadata + Qdrant/Pinecone for embeddings."""
+from qdrant_client import AsyncQdrantClient
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
 
-    def __init__(self, db: CloudDatabase, vector_client, user_id: str):
+class CloudMemoryStore:
+    """PostgreSQL for metadata + Qdrant for embeddings."""
+
+    def __init__(self, db: CloudDatabase, qdrant: AsyncQdrantClient, user_id: str):
         self.db = db
-        self.vector_client = vector_client
+        self.qdrant = qdrant
         self.user_id = user_id
+        self.collection = "pat_memories"
 
     async def add_memory(self, content, metadata, memory_type, importance, ...):
         # 1. Generate embedding
-        # 2. Store in vector DB with user_id namespace
-        # 3. Store metadata in PostgreSQL memories table
+        # 2. Store vector in Qdrant with user_id in payload
+        # 3. Store metadata row in PostgreSQL memories table
+        #    (embedding_id = Qdrant point ID)
         ...
 
     async def search(self, query, top_k=5):
         # 1. Embed query
-        # 2. Search vector DB
-        # 3. Enrich with PostgreSQL metadata
+        # 2. Search Qdrant with user_id filter
+        # 3. Enrich with PostgreSQL metadata (importance, source_type, etc.)
         ...
 ```
 
@@ -627,14 +702,14 @@ Phase 5:
 ## New Dependencies
 
 ```
+sqlalchemy[asyncio]>=2.0.0
 asyncpg>=0.30.0
 PyJWT>=2.8.0
 fastapi>=0.115.0
 uvicorn>=0.30.0
 cryptography>=43.0.0
+qdrant-client>=1.12.0   # Phase 5
 ```
-
-Vector store client added in Phase 5 (qdrant-client or pinecone-client).
 
 ---
 
