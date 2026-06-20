@@ -53,6 +53,8 @@ class ProfileCreate(BaseModel):
     temperature: float = 0.7
     max_turns: int = 100
     description: str | None = None
+    # Optional: link to an existing prompt by UUID.
+    prompt_id: str | None = None
 
 
 class ProfileResponse(BaseModel):
@@ -63,6 +65,8 @@ class ProfileResponse(BaseModel):
     temperature: float
     max_turns: int
     version: int
+    is_active: bool
+    prompt_id: str | None
 
     model_config = {"from_attributes": True}
 
@@ -81,3 +85,31 @@ class ToolResponse(BaseModel):
 
 class ProfileToolsAssign(BaseModel):
     tool_names: list[str]
+
+
+# ------------------------------------------------------------------
+# Prompts
+# ------------------------------------------------------------------
+
+class PromptCreate(BaseModel):
+    name: str
+    content: str
+    version: int = 1
+
+
+class PromptUpdate(BaseModel):
+    # All fields optional so callers can patch only what changed.
+    name: str | None = None
+    content: str | None = None
+    is_active: bool | None = None
+
+
+class PromptResponse(BaseModel):
+    id: str
+    name: str
+    version: int
+    content: str
+    is_active: bool
+    created_at: str
+
+    model_config = {"from_attributes": True}

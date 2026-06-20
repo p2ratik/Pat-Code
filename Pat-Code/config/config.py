@@ -115,6 +115,14 @@ class Config(BaseModel):
         description="If set, only these tools will be available to the agent",
     )
 
+    # Optional system prompt loaded from the prompts table (via agent_profiles.prompt_id).
+    # When set, CloudAgentRuntime passes it directly to ContextManager instead of the
+    # default get_system_prompt() output. Ignored by CLI/Session path.
+    system_prompt_override: str | None = Field(
+        None,
+        description="Custom system prompt from DB profiles table. Cloud API only.",
+    )
+
     approval : ApprovalPolicy = ApprovalPolicy.ON_REQUEST
 
     user_subagents : list[SubagentDefinition] | None = None

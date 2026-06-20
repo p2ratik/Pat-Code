@@ -106,11 +106,12 @@ class AgentProfile(Base):
     max_turns = Column(Integer)
     version = Column(Integer)
     is_active = Column(Boolean, default=True)
-    prompt_id = Column(UUID(as_uuid=True))
+    prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     users = relationship("User", secondary="user_agent_profiles", back_populates="agent_profiles")
     tools = relationship("Tool", secondary="profile_tools", back_populates="profiles")
+    prompt = relationship("Prompt", back_populates="profiles", foreign_keys=[prompt_id])
 
 
 class UserAgentProfile(Base):
@@ -129,6 +130,8 @@ class Prompt(Base):
     content = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    profiles = relationship("AgentProfile", back_populates="prompt")
 
 
 class Tool(Base):

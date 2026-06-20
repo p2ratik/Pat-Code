@@ -8,6 +8,7 @@ from sqlalchemy import select
 from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType
 from api.cloud_runtime import CloudAgentRuntime
+from api.cache.profile_cache import ProfileCache, ProfileConfig
 from config.config import Config, ModelConfig, ApprovalPolicy
 from api.db.database import CloudDatabase
 from api.db.models import Conversation, Message, AgentRun
@@ -16,43 +17,45 @@ from api.cache.conv_context import ConversationContextRepository
 
 logger = logging.getLogger(__name__)
 
+
 class PATService:
     def __init__(
         self,
         db: CloudDatabase,
         conversation_context_repo: ConversationContextRepository,
-        auth_service=None,
+        profile_cache: ProfileCache,
         base_tool_registry=None,
         # Phase 4: event_bus: EventBus | None = None,
         # Phase 5: qdrant: AsyncQdrantClient | None = None,
     ):
         self.db = db
         self.conversation_context_repo = conversation_context_repo
-        self.auth_service = auth_service  # Phase 2: delegates profile/tool resolution
-        self.base_tool_registry = base_tool_registry  # shared singleton, never rebuilt per-request
+        self.profile_cache = profile_cache          # single-query + Redis-backed
+        self.base_tool_registry = base_tool_registry
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
-        # Build config from DB + env
-        config = await self._build_config(user_id)
+        # One cached DB round-trip: profile + prompt + tools
+        profile_config = await self.profile_cache.get_profile_config(user_id)
+        config = self._build_config(profile_config)
 
         # Validate existing conversation or create a new one
         conversation_id = await self._resolve_conversation(user_id, conversation_id)
 
         # Create agent_run BEFORE agent starts (status=running)
-        run_id = await self._create_agent_run(user_id, conversation_id, message)
+        run_id = await self._create_agent_run(
+            user_id, conversation_id, message,
+            profile_id=profile_config.profile_id,   # Bug 5 fix: always captured
+        )
 
         try:
-            # Rehydrate prior conversation state before adding the new user turn.
-            # Agent.run() appends the current user message into its own context.
             final_response = ""
             events: list[AgentEvent] = []
 
             async with Agent(config, runtime=CloudAgentRuntime.build(config, base_registry=self.base_tool_registry)) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 
-                # Snapshot: if rehydration loaded a previous summary, it sets
-                # _compacted_summary. We record this so post-run we can detect
-                # if a NEW compaction happened (summary changed).
+                # Snapshot the compaction state BEFORE the run begins so we
+                # can detect whether a NEW summary was produced this turn.
                 pre_run_summary = agent.runtime.context_manager._compacted_summary
 
                 # Save user message after rehydration so it is not injected twice.
@@ -69,7 +72,7 @@ class PATService:
                     if event.type == AgentEventType.TEXT_COMPLETE:
                         final_response = event.data.get("content", "")
 
-                # Read BEFORE async with exits — __aexit__ sets runtime = None
+                # Must be read INSIDE the async-with block; __aexit__ sets runtime=None.
                 post_run_summary = agent.runtime.context_manager._compacted_summary
 
             # Save assistant response
@@ -81,15 +84,11 @@ class PATService:
             )
 
             # Persist compaction summary if compression happened during the run.
-            # The agentic loop calls context_manager.replace_with_summary() when
-            # context overflows 80% of the model's context window. That wipes the
-            # in-memory messages but never persists — we must catch it here.
             if post_run_summary and post_run_summary != pre_run_summary:
                 await self._persist_summary(conversation_id, post_run_summary)
 
-            # Update agent_run to completed
             step_count = sum(
-                1 for e in events 
+                1 for e in events
                 if e.type in (AgentEventType.TOOL_CALL_START, AgentEventType.TOOL_CALL_COMPLETE)
             )
             await self._update_agent_run(run_id, "completed", final_response, step_count=step_count)
@@ -104,44 +103,45 @@ class PATService:
             logger.exception(f"Agent run failed: {e}")
             raise
 
-    async def _build_config(self, user_id: str) -> Config:
-        """Build a per-request Config from DB.
+    # ------------------------------------------------------------------
+    # Config assembly  (Bug 3 fix: prompt_content is now used)
+    # ------------------------------------------------------------------
 
-        Delegates to AuthService for profile + tool resolution.
-        AuthService handles admin bypass (admins see all tools).
+    def _build_config(self, profile_config: ProfileConfig) -> Config:
+        """Build a per-request Config from the cached ProfileConfig.
+
+        Previously made 2-3 separate DB calls. Now receives everything
+        pre-fetched and pre-cached by ProfileCache.
+
+        profile_config.prompt_content is loaded into Config.system_prompt_override
+        which CloudAgentRuntime.build() applies to ContextManager._system_prompt.
+        When None, the default get_system_prompt() output is used instead.
         """
-        profile = None
-        allowed_tools = None
-
-        if self.auth_service:
-            profile = await self.auth_service.get_user_profile(user_id)
-            allowed_tools = await self.auth_service.get_allowed_tools(user_id)
-
-        model_name = profile["model_name"] if profile else "gpt-4.1-mini"
-        temperature = profile["temperature"] if profile else 0.7
-        max_turns = profile["max_turns"] if profile else 100
-
-        config = Config(
-            model=ModelConfig(name=model_name, temperature=temperature),
+        return Config(
+            model=ModelConfig(
+                name=profile_config.model_name,
+                temperature=profile_config.temperature,
+            ),
             cwd=Path.cwd(),
-            max_turns=max_turns,
-            allowed_tools=allowed_tools,
+            max_turns=profile_config.max_turns,
+            allowed_tools=profile_config.allowed_tools,
+            system_prompt_override=profile_config.prompt_content,  # Bug 3 fix
             approval=ApprovalPolicy.AUTO,
         )
 
-        return config
+    # ------------------------------------------------------------------
+    # Conversation helpers
+    # ------------------------------------------------------------------
 
     async def _resolve_conversation(self, user_id: str, conversation_id: str | None) -> str:
         """Return a valid conversation_id owned by user_id.
 
-        - If conversation_id is None → create a new one.
-        - If conversation_id is provided → verify it exists AND belongs to this user.
-          If not found or wrong owner → raise ValueError (surfaces as 400 in the route).
+        - None → create a new conversation.
+        - Provided → verify it exists AND belongs to this user.
         """
         if not conversation_id or not conversation_id.strip():
             return await self._create_conversation(user_id)
 
-        # Validate UUID format first to give a clean error
         try:
             conv_uuid = uuid.UUID(conversation_id)
         except ValueError:
@@ -200,7 +200,6 @@ class PATService:
             agent.runtime.context_manager.replace_with_summary(context["summary"])
         self._inject_messages(agent, context["messages"])
 
-
     def _inject_messages(self, agent: Agent, messages: list[dict[str, Any] | Message]):
         for msg in messages:
             role = msg["role"] if isinstance(msg, dict) else msg.role
@@ -221,13 +220,16 @@ class PATService:
                     content or "",
                 )
 
+    # ------------------------------------------------------------------
+    # Compaction summary persistence
+    # ------------------------------------------------------------------
+
     async def _persist_summary(self, conversation_id: str, summary: str):
         """Write compaction summary to PostgreSQL + Redis cache.
 
         Called after a run where the agentic loop compressed context.
         Without this, the summary is lost and the next request starts fresh.
         """
-        # PostgreSQL — conversations.summary
         async with self.db.get_session() as session:
             result = await session.execute(
                 select(Conversation).where(Conversation.id == uuid.UUID(conversation_id))
@@ -238,14 +240,24 @@ class PATService:
                 await session.commit()
                 logger.info(f"Persisted compaction summary for conversation {conversation_id}")
 
-        # Redis cache
         await self.conversation_context_repo.update_summary(conversation_id, summary)
 
-    async def _create_agent_run(self, user_id: str, conversation_id: str, message: str) -> str:
+    # ------------------------------------------------------------------
+    # Agent run tracking  (Bug 5 fix: profile_id now recorded)
+    # ------------------------------------------------------------------
+
+    async def _create_agent_run(
+        self,
+        user_id: str,
+        conversation_id: str,
+        message: str,
+        profile_id: str | None = None,
+    ) -> str:
         async with self.db.get_session() as session:
             run = AgentRun(
                 user_id=uuid.UUID(user_id),
                 conversation_id=uuid.UUID(conversation_id),
+                profile_id=uuid.UUID(profile_id) if profile_id else None,  # Bug 5 fix
                 status="running",
                 input_message=message,
                 started_at=datetime.utcnow(),

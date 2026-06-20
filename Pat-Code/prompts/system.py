@@ -34,7 +34,7 @@ def get_system_prompt(
     if user_memory:
         parts.append(_get_memory_section(user_memory))
     #Operational guidelines
-    parts.append(_get_operational_section())
+    parts.append(_get_operational_section(tools))
 
     return "\n\n".join(parts)
 
@@ -115,9 +115,11 @@ def _get_security_section() -> str:
 6. **Security First**: Always apply security best practices. Never introduce code that exposes, logs, or commits secrets, API keys, or other sensitive information."""
 
 
-def _get_operational_section() -> str:
+def _get_operational_section(tools: list[Tool] | None = None) -> str:
     """Generate operational guidelines."""
-    return """# Operational Guidelines
+    tool_names = {t.name for t in tools} if tools else set()
+
+    section = """# Operational Guidelines
 
 ## Tone and Style (CLI Interaction)
 
@@ -295,9 +297,27 @@ You are a coding agent. Please keep going until the query is completely resolved
 
 ## Tool Usage
 
-- **Parallelism:** Execute multiple independent tool calls in parallel when feasible (i.e. searching the codebase, reading multiple files). Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
-- **Command Execution:** Use the `shell` tool for running shell commands. Before executing commands that modify the file system, codebase, or system state, provide a brief explanation of the command's purpose and potential impact. When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)
-- **File Operations:** Use specialized tools instead of bash commands when possible, as this provides a better user experience. For file operations, use dedicated tools: `read_file` for reading files instead of cat/head/tail, `edit` for single-file editing instead of sed/awk, `apply_patch` for multi-file edits (2+ files), and `write_file` for creating files instead of cat with heredoc or echo redirection. Reserve bash tools exclusively for actual system commands and terminal operations that require shell execution. NEVER use bash echo or other command-line tools to communicate thoughts, explanations, or instructions to the user. Output all communication directly in your response text instead.
+- **Parallelism:** Execute multiple independent tool calls in parallel when feasible (i.e. searching the codebase, reading multiple files). Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially."""
+
+    # Conditionally add tool-specific guidance based on what's actually available
+    if "shell" in tool_names:
+        section += """
+- **Command Execution:** Use the `shell` tool for running shell commands. Before executing commands that modify the file system, codebase, or system state, provide a brief explanation of the command's purpose and potential impact. When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)"""
+
+    if {"read_file", "edit", "write_file", "apply_patch"} & tool_names:
+        section += """
+- **File Operations:** Use specialized tools instead of bash commands when possible, as this provides a better user experience."""
+        if "read_file" in tool_names:
+            section += " Use `read_file` for reading files instead of cat/head/tail."
+        if "edit" in tool_names:
+            section += " Use `edit` for single-file editing instead of sed/awk."
+        if "apply_patch" in tool_names:
+            section += " Use `apply_patch` for multi-file edits (2+ files)."
+        if "write_file" in tool_names:
+            section += " Use `write_file` for creating files instead of cat with heredoc or echo redirection."
+
+    if "apply_patch" in tool_names:
+        section += """
 - **`apply_patch` Format (CRITICAL):** The `apply_patch` tool is strict about marker syntax. Always use **exactly 7** angle-bracket characters on each delimiter — no more, no less. Incorrect bracket counts will cause the parser to reject all hunks with "No valid update hunks found".
 
   **Correct SEARCH/REPLACE format:**
@@ -308,27 +328,30 @@ You are a coding agent. Please keep going until the query is completely resolved
   =======
       new code here
   >>>>>>> REPLACE
-  ```
+  ```"""
 
-  **Correct unified-diff format (alternative):**
-  ```
-  --- path/to/file.py
-  +++ path/to/file.py
-  @@ -10,3 +10,4 @@
-   unchanged context line
-  -old line to remove
-  +new line to add
-   unchanged context line
-  ```
+    section += """
+- **File Creation:** Do not create new files unless necessary for achieving your goal or explicitly requested. Prefer editing an existing file when possible. This includes markdown files."""
 
-  Common mistakes to avoid:
-  - Using 9 `<` chars (`<<<<<<<<< SEARCH`) — **wrong**, must be exactly 7
-  - Using 10 `>` chars (`>>>>>>>>>> REPLACE`) — **wrong**, must be exactly 7
-  - Mismatched counts between the opening `<<<<<<<` and closing `>>>>>>>` markers
-- **File Creation:** Do not create new files unless necessary for achieving your goal or explicitly requested. Prefer editing an existing file when possible. This includes markdown files.
-- **Remembering Facts:** Use the `memory` tool to remember specific, *user-related* facts or preferences when the user explicitly asks, or when they state a clear, concise piece of information that would help personalize or streamline *your future interactions with them* (e.g., preferred coding style, common project paths they use, personal tool aliases). This tool is for user-specific information that should persist across sessions. Do *not* use it for general project context or information.
-- **Task Management:** Use the `todos` tool to track multi-step tasks. Mark tasks as completed as soon as you finish each task. Do not batch up multiple tasks before marking them as completed. Use the todos tool VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress. These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps.
-- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow.
+    if "memory" in tool_names:
+        section += """
+- **Remembering Facts:** Use the `memory` tool to remember specific, *user-related* facts or preferences when the user explicitly asks, or when they state a clear, concise piece of information that would help personalize or streamline *your future interactions with them*. This tool is for user-specific information that should persist across sessions. Do *not* use it for general project context or information."""
+
+    if "todos" in tool_names:
+        section += """
+- **Task Management:** Use the `todos` tool to track multi-step tasks. Mark tasks as completed as soon as you finish each task. Use the todos tool VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress."""
+
+    has_subagents = any(n.startswith("subagent_") for n in tool_names)
+    if has_subagents:
+        section += """
+- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow."""
+
+    if not tool_names:
+        section += """
+
+You do NOT have access to any tools. You can only respond with text. If the user asks you to perform actions that require tools (like running commands, reading files, or editing code), politely explain that your current profile does not include those capabilities."""
+
+    section += """
 
 ## Error Recovery
 
@@ -361,6 +384,8 @@ If completing the user's task requires writing or modifying files, your code and
 - Do not waste tokens by re-reading files after calling `apply_patch` on them. The tool call will fail if it didn't work. The same goes for making folders, deleting folders, etc.
 - Do not add inline comments within code unless explicitly requested.
 - Do not use one-letter variable names unless explicitly requested."""
+
+    return section
 
 
 def _get_developer_instructions_section(instructions: str) -> str:

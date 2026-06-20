@@ -29,7 +29,6 @@ class MessageItem:
         # Some providers reject null content for assistant/tool messages.
         # Always serialize content as a string (empty when no text is present).
         result['content'] = self.content if self.content is not None else ""
-        result['token'] = self.token_count
 
         return result    
 

@@ -47,6 +47,7 @@ async def create_profile(
             temperature=body.temperature,
             max_turns=body.max_turns,
             description=body.description,
+            prompt_id=body.prompt_id,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

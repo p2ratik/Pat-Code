@@ -53,7 +53,7 @@ class ToolRegistryView:
 
     def get_tools(self) -> list[Tool]:
         tools = list(self._base._tools.values()) + list(self._base._mcp_tools.values())
-        if self.config.allowed_tools:
+        if self.config.allowed_tools is not None:
             allowed = set(self.config.allowed_tools)
             tools = [t for t in tools if t.name in allowed]
         return tools
@@ -63,14 +63,14 @@ class ToolRegistryView:
 
     def get(self, name: str):
         # Allow lookup only for tools this view is authorized to use
-        if self.config.allowed_tools and name not in set(self.config.allowed_tools):
+        if self.config.allowed_tools is not None and name not in set(self.config.allowed_tools):
             return None
         return self._base.get(name)
 
     async def invoke(self, name, params, cwd, session, approval_manager=None):
         # Defense in depth: block execution even if the LLM hallucinates
         # a tool name that wasn't in the filtered schemas.
-        if self.config.allowed_tools and name not in set(self.config.allowed_tools):
+        if self.config.allowed_tools is not None and name not in set(self.config.allowed_tools):
             from tools.base import ToolResult
             return ToolResult.error_result(
                 error=f"Tool '{name}' is not authorized for this user profile.",
@@ -142,6 +142,12 @@ class CloudAgentRuntime:
             user_memory=None,       # no local user_memory.json in cloud
             tools=tool_registry.get_tools(),
         )
+
+        # Apply per-profile system prompt override from the DB prompts table.
+        # We set _system_prompt directly — ContextManager is already constructed,
+        # so this is the cleanest injection point without changing its __init__.
+        if config.system_prompt_override:
+            context_manager._system_prompt = config.system_prompt_override
 
         return cls(
             config=config,

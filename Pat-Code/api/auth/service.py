@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from api.db.database import CloudDatabase
 from api.db.models import (
     User, Role, UserRole, AgentProfile, UserAgentProfile,
-    ProfileTool, Tool, AuditLog,
+    ProfileTool, Tool, Prompt, AuditLog,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,12 +20,12 @@ ADMIN_ROLES = {"super_admin", "admin"}
 
 
 class AuthService:
-    def __init__(self, db: CloudDatabase):
+    def __init__(self, db: CloudDatabase, profile_cache=None):
         self.db = db
+        # Optional: ProfileCache injected at startup. When set, profile assignment
+        # and tool changes immediately invalidate the relevant cache entries.
+        self._profile_cache = profile_cache
 
-    # ------------------------------------------------------------------
-    # User CRUD
-    # ------------------------------------------------------------------
 
     async def create_user(self, email: str, display_name: str) -> dict:
         async with self.db.get_session() as session:
@@ -67,10 +67,7 @@ class AuthService:
                 "roles": roles,
             }
 
-    # ------------------------------------------------------------------
-    # Roles
-    # ------------------------------------------------------------------
-
+    # Roles Layer
     async def get_user_roles(self, user_id: str) -> list[str]:
         async with self.db.get_session() as session:
             result = await session.execute(
@@ -123,9 +120,7 @@ class AuthService:
         roles = await self.get_user_roles(user_id)
         return bool(ADMIN_ROLES & set(roles))
 
-    # ------------------------------------------------------------------
-    # Agent Profiles
-    # ------------------------------------------------------------------
+    # Agent Profile Ahh layer
 
     async def get_user_profile(self, user_id: str) -> dict | None:
         """Get the active agent profile assigned to this user."""
@@ -150,6 +145,7 @@ class AuthService:
                 "max_turns": profile.max_turns,
                 "version": profile.version,
                 "is_active": profile.is_active,
+                "prompt_id": str(profile.prompt_id) if profile.prompt_id else None,
             }
 
     async def _assign_default_profile(self, user_id: str) -> None:
@@ -201,13 +197,11 @@ class AuthService:
             for row in existing.scalars().all():
                 await session.delete(row)
 
-            # Assign new profile
             session.add(UserAgentProfile(
                 user_id=uuid.UUID(user_id),
                 profile_id=uuid.UUID(profile_id),
             ))
 
-            # Audit log
             session.add(AuditLog(
                 user_id=uuid.UUID(assigned_by or user_id),
                 action="PROFILE_UPDATED",
@@ -216,6 +210,10 @@ class AuthService:
 
             await session.commit()
             logger.info(f"Assigned profile '{profile.name}' to user {user_id}")
+
+        # Invalidate the profile cache so the next request fetches fresh data.
+        if self._profile_cache:
+            await self._profile_cache.invalidate_user(user_id)
 
     async def list_profiles(self) -> list[dict]:
         """List all active agent profiles."""
@@ -233,6 +231,8 @@ class AuthService:
                     "temperature": p.temperature,
                     "max_turns": p.max_turns,
                     "version": p.version,
+                    "is_active": p.is_active,
+                    "prompt_id": str(p.prompt_id) if p.prompt_id else None,
                 }
                 for p in profiles
             ]
@@ -244,8 +244,10 @@ class AuthService:
         temperature: float = 0.7,
         max_turns: int = 100,
         description: str | None = None,
+        prompt_id: str | None = None,
     ) -> dict:
-        """Create a new agent profile."""
+        """Create a new agent profile. prompt_id is optional."""
+        import uuid as _uuid
         async with self.db.get_session() as session:
             profile = AgentProfile(
                 name=name,
@@ -254,6 +256,7 @@ class AuthService:
                 temperature=temperature,
                 max_turns=max_turns,
                 version=1,
+                prompt_id=_uuid.UUID(prompt_id) if prompt_id else None,
             )
             session.add(profile)
             await session.commit()
@@ -267,11 +270,9 @@ class AuthService:
                 "temperature": profile.temperature,
                 "max_turns": profile.max_turns,
                 "version": profile.version,
+                "is_active": profile.is_active,
+                "prompt_id": str(profile.prompt_id) if profile.prompt_id else None,
             }
-
-    # ------------------------------------------------------------------
-    # Tool Authorization (Phase 2 core)
-    # ------------------------------------------------------------------
 
     async def get_allowed_tools(self, user_id: str) -> list[str] | None:
         """Resolve the tool whitelist for a user.
@@ -347,7 +348,6 @@ class AuthService:
             if not result.scalar_one_or_none():
                 raise ValueError(f"Profile not found: {profile_id}")
 
-            # Resolve tool names to IDs
             result = await session.execute(
                 select(Tool).where(Tool.name.in_(tool_names))
             )
@@ -357,14 +357,12 @@ class AuthService:
             if missing:
                 raise ValueError(f"Unknown tools: {', '.join(sorted(missing))}")
 
-            # Remove old assignments
             old = await session.execute(
                 select(ProfileTool).where(ProfileTool.profile_id == uuid.UUID(profile_id))
             )
             for row in old.scalars().all():
                 await session.delete(row)
 
-            # Add new assignments
             for tool in found_tools:
                 session.add(ProfileTool(
                     profile_id=uuid.UUID(profile_id),
@@ -373,6 +371,11 @@ class AuthService:
 
             await session.commit()
             logger.info(f"Assigned {len(found_tools)} tools to profile {profile_id}")
+
+        # Invalidate tools cache for this profile — all users on it see new tools
+        # on their next request.
+        if self._profile_cache:
+            await self._profile_cache.invalidate_profile_tools(profile_id)
 
     async def list_tools(self) -> list[dict]:
         """List all registered tools."""
@@ -385,9 +388,77 @@ class AuthService:
             ]
 
     # ------------------------------------------------------------------
-    # JWT
+    # Prompts
     # ------------------------------------------------------------------
 
+    async def create_prompt(self, name: str, content: str, version: int = 1) -> dict:
+        """Insert a new prompt row and return its data."""
+        async with self.db.get_session() as session:
+            prompt = Prompt(name=name, content=content, version=version)
+            session.add(prompt)
+            await session.commit()
+            await session.refresh(prompt)
+            return self._prompt_to_dict(prompt)
+
+    async def get_prompt(self, prompt_id: str) -> dict | None:
+        """Fetch a single prompt by UUID."""
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(Prompt).where(Prompt.id == uuid.UUID(prompt_id))
+            )
+            prompt = result.scalar_one_or_none()
+            return self._prompt_to_dict(prompt) if prompt else None
+
+    async def list_prompts(self) -> list[dict]:
+        """Return all prompts ordered by name."""
+        async with self.db.get_session() as session:
+            result = await session.execute(select(Prompt).order_by(Prompt.name))
+            return [self._prompt_to_dict(p) for p in result.scalars().all()]
+
+    async def update_prompt(
+        self,
+        prompt_id: str,
+        name: str | None = None,
+        content: str | None = None,
+        is_active: bool | None = None,
+    ) -> dict | None:
+        """Partial update — only supplied fields are changed."""
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(Prompt).where(Prompt.id == uuid.UUID(prompt_id))
+            )
+            prompt = result.scalar_one_or_none()
+            if not prompt:
+                return None
+
+            if name is not None:
+                prompt.name = name
+            if content is not None:
+                prompt.content = content
+            if is_active is not None:
+                prompt.is_active = is_active
+
+            await session.commit()
+            await session.refresh(prompt)
+
+            # Prompt content changed — invalidate cache for affected profiles.
+            if content is not None and self._profile_cache:
+                await self._profile_cache.invalidate_prompt(prompt_id)
+
+            return self._prompt_to_dict(prompt)
+
+    @staticmethod
+    def _prompt_to_dict(prompt: Prompt) -> dict:
+        return {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "version": prompt.version,
+            "content": prompt.content,
+            "is_active": prompt.is_active,
+            "created_at": prompt.created_at.isoformat(),
+        }
+
+    #JWT Layer
     def create_token(self, user_id: str) -> str:
         secret = os.environ.get("JWT_SECRET", "dev-secret-change-me")
         payload = {

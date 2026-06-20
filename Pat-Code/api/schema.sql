@@ -98,7 +98,7 @@ CREATE TABLE agent_profiles (
     max_turns INTEGER,
     version INTEGER,
     is_active BOOLEAN DEFAULT TRUE,
-    prompt_id UUID,
+    prompt_id UUID REFERENCES prompts(id) ON DELETE SET NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -267,8 +267,7 @@ INSERT INTO roles (name, description) VALUES
     ('premium', 'Premium user access')
 ON CONFLICT (name) DO NOTHING;
 
--- Default agent profiles
-INSERT INTO agent_profiles (name, description, model_name, temperature, max_turns, version) VALUES
-    ('Admin Agent', 'Full-access agent for administrators', 'gpt-4.1-mini', 0.7, 100, 1),
-    ('Default User Agent', 'Restricted agent for standard users', 'gpt-4.1-mini', 0.7, 50, 1)
-ON CONFLICT DO NOTHING;
+-- NOTE: Agent profiles and tools are seeded by the Python application
+-- at startup via CloudDatabase._seed_default_profile(). Do NOT seed
+-- agent_profiles here — the Python seeder is the single source of truth
+-- because it also wires up the profile_tools assignments.

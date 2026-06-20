@@ -54,7 +54,7 @@ class ToolRegistry:
         for mcp_tool in self._mcp_tools.values():
             tools.append(mcp_tool)
             
-        if self.config.allowed_tools:
+        if self.config.allowed_tools is not None:
             allowed_set = set(self.config.allowed_tools)
             tools = [t for t in tools if t.name in allowed_set]
             

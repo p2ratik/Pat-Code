@@ -54,13 +54,20 @@ class CloudDatabase:
 
     async def _seed_defaults(self):
         async with self.session_factory() as session:
-            # Seed roles
-            result = await session.execute(select(Role).limit(1))
-            if not result.scalar():
-                for role_data in DEFAULT_ROLES:
+            # Idempotent per-row upsert: only insert roles that don't exist yet.
+            # The old one-shot check (if any role exists → skip all) was wrong —
+            # it would silently skip seeding if a custom role was manually added.
+            result = await session.execute(select(Role.name))
+            existing_role_names = {row[0] for row in result.all()}
+
+            new_roles = [r for r in DEFAULT_ROLES if r["name"] not in existing_role_names]
+            if new_roles:
+                for role_data in new_roles:
                     session.add(Role(**role_data))
                 await session.commit()
-                logger.info("Seeded default roles")
+                logger.info("Seeded %d default roles: %s", len(new_roles), [r["name"] for r in new_roles])
+            else:
+                logger.debug("All default roles already present")
 
         await self._seed_tools()
         await self._seed_default_profile()
