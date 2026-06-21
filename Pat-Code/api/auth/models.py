@@ -57,6 +57,16 @@ class ProfileCreate(BaseModel):
     prompt_id: str | None = None
 
 
+class ProfileUpdate(BaseModel):
+    name: str | None = None
+    model_name: str | None = None
+    temperature: float | None = None
+    max_turns: int | None = None
+    description: str | None = None
+    prompt_id: str | None = None
+    is_active: bool | None = None
+
+
 class ProfileResponse(BaseModel):
     id: str
     name: str

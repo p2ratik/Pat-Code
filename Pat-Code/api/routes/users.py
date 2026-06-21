@@ -8,6 +8,13 @@ from api.auth.dependencies import get_current_user
 router = APIRouter(tags=["users"])
 
 
+@router.get("", response_model=list[UserResponse])
+async def list_users(request: Request, current_user: dict = Depends(get_current_user)):
+    auth_service = request.app.state.auth_service
+    users = await auth_service.list_users()
+    return [UserResponse(**u) for u in users]
+
+
 @router.post("", response_model=UserResponse)
 async def create_user(body: UserCreate, request: Request):
     auth_service = request.app.state.auth_service

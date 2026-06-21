@@ -2,15 +2,16 @@
 Profile and Tool management routes (Phase 2).
 
 Endpoints:
-    GET  /profiles              → list all active agent profiles
-    POST /profiles              → create a new profile
-    GET  /profiles/{id}/tools   → list tools assigned to profile
-    PUT  /profiles/{id}/tools   → replace tools for profile
-    GET  /tools                 → list all registered tools
+    GET   /profiles              → list all active agent profiles
+    POST  /profiles              → create a new profile
+    PATCH /profiles/{id}         → update profile fields (admin only)
+    GET   /profiles/{id}/tools   → list tools assigned to profile
+    PUT   /profiles/{id}/tools   → replace tools for profile
+    GET   /tools                 → list all registered tools
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from api.auth.models import (
-    ProfileCreate, ProfileResponse, ToolResponse, ProfileToolsAssign,
+    ProfileCreate, ProfileUpdate, ProfileResponse, ToolResponse, ProfileToolsAssign,
 )
 from api.auth.dependencies import get_current_user
 
@@ -49,6 +50,28 @@ async def create_profile(
             description=body.description,
             prompt_id=body.prompt_id,
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return ProfileResponse(**profile)
+
+
+@router.patch("/{profile_id}", response_model=ProfileResponse)
+async def update_profile(
+    profile_id: str,
+    body: ProfileUpdate,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    auth_service = request.app.state.auth_service
+
+    if not await auth_service.has_admin_role(current_user["id"]):
+        raise HTTPException(status_code=403, detail="Only admins can update profiles")
+
+    try:
+        profile = await auth_service.update_profile(profile_id, body)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

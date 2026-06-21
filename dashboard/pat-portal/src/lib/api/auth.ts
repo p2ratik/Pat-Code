@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { AgentProfile } from './profiles';
 
 export interface User {
   id: string;
@@ -15,21 +16,42 @@ export interface AuthToken {
 }
 
 export const authApi = {
-  // Create a new user
   createUser: async (email: string, display_name: string): Promise<User> => {
     const response = await apiClient.post<User>('/users', { email, display_name });
     return response.data;
   },
 
-  // Get user details
+  listUsers: async (): Promise<User[]> => {
+    const response = await apiClient.get<User[]>('/users');
+    return response.data;
+  },
+
   getUser: async (userId: string): Promise<User> => {
     const response = await apiClient.get<User>(`/users/${userId}`);
     return response.data;
   },
 
-  // Generate JWT token
   generateToken: async (userId: string): Promise<AuthToken> => {
     const response = await apiClient.post<AuthToken>(`/users/${userId}/token`);
+    return response.data;
+  },
+
+  getUserProfile: async (userId: string): Promise<AgentProfile | null> => {
+    const response = await apiClient.get<AgentProfile | null>(`/users/${userId}/profile`);
+    return response.data;
+  },
+
+  assignProfile: async (userId: string, profileId: string): Promise<{ detail: string }> => {
+    const response = await apiClient.post<{ detail: string }>(`/users/${userId}/profile`, {
+      profile_id: profileId,
+    });
+    return response.data;
+  },
+
+  assignRole: async (userId: string, roleName: string): Promise<{ detail: string }> => {
+    const response = await apiClient.post<{ detail: string }>(`/users/${userId}/roles`, {
+      role_name: roleName,
+    });
     return response.data;
   },
 };

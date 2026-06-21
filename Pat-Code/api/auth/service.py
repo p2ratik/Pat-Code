@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from api.db.database import CloudDatabase
 from api.db.models import (
     User, Role, UserRole, AgentProfile, UserAgentProfile,
-    ProfileTool, Tool, Prompt, AuditLog,
+    ProfileTool, Tool, Prompt, AuditLog, Conversation, Message,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,26 @@ class AuthService:
             "created_at": user.created_at.isoformat(),
             "roles": [],
         }
+
+    async def list_users(self) -> list[dict]:
+        """Return all users ordered by creation date."""
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(User).order_by(User.created_at.desc())
+            )
+            users = result.scalars().all()
+            rows = []
+            for u in users:
+                roles = await self.get_user_roles(str(u.id))
+                rows.append({
+                    "id": str(u.id),
+                    "email": u.email,
+                    "display_name": u.display_name,
+                    "is_active": u.is_active,
+                    "created_at": u.created_at.isoformat(),
+                    "roles": roles,
+                })
+            return rows
 
     async def get_user(self, user_id: str) -> dict | None:
         async with self.db.get_session() as session:
@@ -273,6 +293,106 @@ class AuthService:
                 "is_active": profile.is_active,
                 "prompt_id": str(profile.prompt_id) if profile.prompt_id else None,
             }
+
+    async def update_profile(self, profile_id: str, body) -> dict:
+        """Partial update of an agent profile."""
+        import uuid as _uuid
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(AgentProfile).where(AgentProfile.id == _uuid.UUID(profile_id))
+            )
+            profile = result.scalar_one_or_none()
+            if not profile:
+                raise ValueError(f"Profile not found: {profile_id}")
+
+            if body.name is not None:
+                profile.name = body.name
+            if body.model_name is not None:
+                profile.model_name = body.model_name
+            if body.temperature is not None:
+                profile.temperature = body.temperature
+            if body.max_turns is not None:
+                profile.max_turns = body.max_turns
+            if body.description is not None:
+                profile.description = body.description
+            if body.is_active is not None:
+                profile.is_active = body.is_active
+            # Allow explicit null to clear prompt_id
+            if "prompt_id" in (body.model_fields_set if hasattr(body, "model_fields_set") else {}):
+                profile.prompt_id = _uuid.UUID(body.prompt_id) if body.prompt_id else None
+
+            profile.version = profile.version + 1
+            await session.commit()
+            await session.refresh(profile)
+
+            return {
+                "id": str(profile.id),
+                "name": profile.name,
+                "description": profile.description,
+                "model_name": profile.model_name,
+                "temperature": profile.temperature,
+                "max_turns": profile.max_turns,
+                "version": profile.version,
+                "is_active": profile.is_active,
+                "prompt_id": str(profile.prompt_id) if profile.prompt_id else None,
+            }
+
+    async def list_user_conversations(self, user_id: str, limit: int = 50) -> list[dict]:
+        """List conversations for a user, newest first."""
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(Conversation)
+                .where(Conversation.user_id == uuid.UUID(user_id))
+                .order_by(Conversation.updated_at.desc())
+                .limit(limit)
+            )
+            conversations = result.scalars().all()
+            return [
+                {
+                    "id": str(c.id),
+                    "title": c.title,
+                    "created_at": c.created_at.isoformat(),
+                    "updated_at": c.updated_at.isoformat(),
+                }
+                for c in conversations
+            ]
+
+    async def get_conversation_messages(self, conversation_id: str, user_id: str) -> list[dict] | None:
+        """Get messages for a conversation, verifying it belongs to the user."""
+        try:
+            conv_uuid = uuid.UUID(conversation_id)
+            user_uuid = uuid.UUID(user_id)
+        except ValueError:
+            return None
+
+        async with self.db.get_session() as session:
+            # Verify ownership
+            result = await session.execute(
+                select(Conversation).where(
+                    Conversation.id == conv_uuid,
+                    Conversation.user_id == user_uuid,
+                )
+            )
+            conv = result.scalar_one_or_none()
+            if not conv:
+                return None
+
+            result = await session.execute(
+                select(Message)
+                .where(Message.conversation_id == conv_uuid)
+                .order_by(Message.created_at)
+            )
+            messages = result.scalars().all()
+            return [
+                {
+                    "id": str(m.id),
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in messages
+                if m.role in ("user", "assistant")
+            ]
 
     async def get_allowed_tools(self, user_id: str) -> list[str] | None:
         """Resolve the tool whitelist for a user.

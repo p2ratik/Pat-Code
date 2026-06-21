@@ -13,7 +13,7 @@ from api.cache.profile_cache import ProfileCache
 from api.db.database import CloudDatabase
 from api.auth.service import AuthService
 from api.pat_service import PATService
-from api.routes import users, chat, profiles, tools, prompts
+from api.routes import users, chat, profiles, tools, prompts, conversations
 from config.config import Config, ModelConfig, ApprovalPolicy
 from tools.registry import create_default_registry
 
@@ -106,6 +106,7 @@ app.include_router(chat.router, prefix="/chat")
 app.include_router(profiles.router, prefix="/profiles")
 app.include_router(tools.router, prefix="/tools")
 app.include_router(prompts.router, prefix="/prompts")
+app.include_router(conversations.router, prefix="/conversations")
 
 
 @app.get("/health", tags=["health"])

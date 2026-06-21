@@ -54,8 +54,6 @@ class PATService:
             async with Agent(config, runtime=CloudAgentRuntime.build(config, base_registry=self.base_tool_registry)) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 
-                # Snapshot the compaction state BEFORE the run begins so we
-                # can detect whether a NEW summary was produced this turn.
                 pre_run_summary = agent.runtime.context_manager._compacted_summary
 
                 # Save user message after rehydration so it is not injected twice.
@@ -128,10 +126,6 @@ class PATService:
             system_prompt_override=profile_config.prompt_content,  # Bug 3 fix
             approval=ApprovalPolicy.AUTO,
         )
-
-    # ------------------------------------------------------------------
-    # Conversation helpers
-    # ------------------------------------------------------------------
 
     async def _resolve_conversation(self, user_id: str, conversation_id: str | None) -> str:
         """Return a valid conversation_id owned by user_id.
@@ -220,9 +214,6 @@ class PATService:
                     content or "",
                 )
 
-    # ------------------------------------------------------------------
-    # Compaction summary persistence
-    # ------------------------------------------------------------------
 
     async def _persist_summary(self, conversation_id: str, summary: str):
         """Write compaction summary to PostgreSQL + Redis cache.
@@ -242,9 +233,6 @@ class PATService:
 
         await self.conversation_context_repo.update_summary(conversation_id, summary)
 
-    # ------------------------------------------------------------------
-    # Agent run tracking  (Bug 5 fix: profile_id now recorded)
-    # ------------------------------------------------------------------
 
     async def _create_agent_run(
         self,
