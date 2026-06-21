@@ -25,18 +25,26 @@ class PATService:
         conversation_context_repo: ConversationContextRepository,
         profile_cache: ProfileCache,
         base_tool_registry=None,
+        mcp_service=None,
         # Phase 4: event_bus: EventBus | None = None,
         # Phase 5: qdrant: AsyncQdrantClient | None = None,
     ):
         self.db = db
         self.conversation_context_repo = conversation_context_repo
-        self.profile_cache = profile_cache          # single-query + Redis-backed
+        self.profile_cache = profile_cache
         self.base_tool_registry = base_tool_registry
+        self.mcp_service = mcp_service
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
         # One cached DB round-trip: profile + prompt + tools
         profile_config = await self.profile_cache.get_profile_config(user_id)
-        config = self._build_config(profile_config)
+
+        # Load connected MCP servers for this user; empty dict if none connected
+        mcp_configs = {}
+        if self.mcp_service:
+            mcp_configs = await self.mcp_service.build_mcp_configs(user_id)
+
+        config = self._build_config(profile_config, mcp_configs)
 
         # Validate existing conversation or create a new one
         conversation_id = await self._resolve_conversation(user_id, conversation_id)
@@ -105,15 +113,12 @@ class PATService:
     # Config assembly  (Bug 3 fix: prompt_content is now used)
     # ------------------------------------------------------------------
 
-    def _build_config(self, profile_config: ProfileConfig) -> Config:
+    def _build_config(self, profile_config: ProfileConfig, mcp_configs: dict | None = None) -> Config:
         """Build a per-request Config from the cached ProfileConfig.
 
-        Previously made 2-3 separate DB calls. Now receives everything
-        pre-fetched and pre-cached by ProfileCache.
-
-        profile_config.prompt_content is loaded into Config.system_prompt_override
-        which CloudAgentRuntime.build() applies to ContextManager._system_prompt.
-        When None, the default get_system_prompt() output is used instead.
+        mcp_configs is the dict[name, MCPServerConfig] produced by
+        CloudMCPService.build_mcp_configs(). Passed straight into Config
+        so MCPManager picks them up unchanged.
         """
         return Config(
             model=ModelConfig(
@@ -123,7 +128,8 @@ class PATService:
             cwd=Path.cwd(),
             max_turns=profile_config.max_turns,
             allowed_tools=profile_config.allowed_tools,
-            system_prompt_override=profile_config.prompt_content,  # Bug 3 fix
+            system_prompt_override=profile_config.prompt_content,
+            mcp_servers=mcp_configs or {},
             approval=ApprovalPolicy.AUTO,
         )
 

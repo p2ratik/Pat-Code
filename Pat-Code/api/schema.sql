@@ -241,6 +241,19 @@ CREATE TABLE mcp_server_configs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- For handeling network latencies 
+CREATE TABLE mcp_tools (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    mcp_server_id UUID REFERENCES mcp_servers(id),
+    tool_name TEXT,
+    description TEXT,
+    schema JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_mcp_tools_server_id ON mcp_tools(mcp_server_id);
+
 -- ============================================================
 -- AUDIT_LOGS
 -- ============================================================

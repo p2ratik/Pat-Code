@@ -10,6 +10,7 @@ import {
   Wrench,
   BarChart3,
   FileText,
+  Cable,
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
@@ -22,6 +23,7 @@ const NAV_LINKS = [
   { name: 'Chat', href: '/chat', icon: MessageSquare },
   { name: 'Profiles', href: '/profiles', icon: Bot },
   { name: 'Prompts', href: '/prompts', icon: FileText },
+  { name: 'MCP', href: '/mcp', icon: Cable },
   { name: 'Tools', href: '/tools', icon: Wrench },
   { name: 'Users', href: '/users', icon: Users },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },

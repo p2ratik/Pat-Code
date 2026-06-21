@@ -12,8 +12,11 @@ from api.cache.conv_context import ConversationContextRepository
 from api.cache.profile_cache import ProfileCache
 from api.db.database import CloudDatabase
 from api.auth.service import AuthService
+from api.mcp.service import CloudMCPService
 from api.pat_service import PATService
-from api.routes import users, chat, profiles, tools, prompts, conversations
+from api.routes import users, chat, profiles, tools, prompts
+from api.routes import mcp as mcp_routes
+from api.routes import conversations
 from config.config import Config, ModelConfig, ApprovalPolicy
 from tools.registry import create_default_registry
 
@@ -51,6 +54,7 @@ async def lifespan(app: FastAPI):
     app.state.auth_service = auth_service
     app.state.profile_cache = profile_cache
     app.state.conversation_context_repo = conversation_context_repo
+    app.state.mcp_service = CloudMCPService(db)
 
     # Build the base tool registry ONCE at startup.
     # Per-request runtimes filter this instead of re-scanning builtins.
@@ -68,6 +72,7 @@ async def lifespan(app: FastAPI):
         conversation_context_repo=conversation_context_repo,
         profile_cache=profile_cache,
         base_tool_registry=app.state.base_tool_registry,
+        mcp_service=app.state.mcp_service,
     )
 
     logger.info("PAT API started")
@@ -106,6 +111,7 @@ app.include_router(chat.router, prefix="/chat")
 app.include_router(profiles.router, prefix="/profiles")
 app.include_router(tools.router, prefix="/tools")
 app.include_router(prompts.router, prefix="/prompts")
+app.include_router(mcp_routes.router, prefix="/mcp")
 app.include_router(conversations.router, prefix="/conversations")
 
 

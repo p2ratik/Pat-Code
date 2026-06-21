@@ -201,6 +201,8 @@ class MCPServer(Base):
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    mcp_tools = relationship("MCPTool", back_populates="server", cascade="all, delete-orphan")
+
 
 class MCPServerScope(Base):
     __tablename__ = "mcp_server_scopes"
@@ -222,6 +224,10 @@ class MCPUserConnection(Base):
 
     __table_args__ = (UniqueConstraint("user_id", "mcp_server_id"),)
 
+    server = relationship("MCPServer")
+    credentials = relationship("MCPCredential", back_populates="connection", uselist=False, cascade="all, delete-orphan")
+    config = relationship("MCPServerConfig", back_populates="connection", uselist=False, cascade="all, delete-orphan")
+
 
 class MCPCredential(Base):
     __tablename__ = "mcp_credentials"
@@ -237,6 +243,8 @@ class MCPCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    connection = relationship("MCPUserConnection", back_populates="credentials")
+
 
 class MCPServerConfig(Base):
     __tablename__ = "mcp_server_configs"
@@ -245,6 +253,8 @@ class MCPServerConfig(Base):
     connection_id = Column(UUID(as_uuid=True), ForeignKey("mcp_user_connections.id", ondelete="CASCADE"))
     config = Column(JSONB)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    connection = relationship("MCPUserConnection", back_populates="config")
 
 
 class AuditLog(Base):
@@ -256,3 +266,26 @@ class AuditLog(Base):
     metadata_json = Column("metadata", JSONB)
     ip_address = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MCPTool(Base):
+    """Cached snapshot of tools discovered from an MCP server.
+
+    Written by the sync endpoint so runtime never needs a live network call
+    to know what tools a server exposes.
+    """
+    __tablename__ = "mcp_tools"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Which server this tool belongs to
+    mcp_server_id = Column(UUID(as_uuid=True), ForeignKey("mcp_servers.id"), nullable=False)
+    # Name as reported by the MCP server (e.g. "search_github")
+    tool_name = Column(Text, nullable=False)
+    # Human-readable description forwarded from the server
+    description = Column(Text)
+    # Full JSON schema for the tool's input parameters (passed to the model verbatim)
+    schema = Column(JSONB)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    server = relationship("MCPServer", back_populates="mcp_tools")
