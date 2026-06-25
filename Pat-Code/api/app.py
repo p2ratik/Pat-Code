@@ -2,11 +2,13 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from redis.asyncio import Redis
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from api.cache.conv_context import ConversationContextRepository
 from api.cache.profile_cache import ProfileCache
@@ -21,8 +23,6 @@ from config.config import Config, ModelConfig, ApprovalPolicy
 from tools.registry import create_default_registry
 
 logger = logging.getLogger(__name__)
-
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 @asynccontextmanager

@@ -56,3 +56,31 @@ class MCPToolResponse(BaseModel):
     updated_at: str
 
     model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class OAuthCallbackRequest(BaseModel):
+    """Payload sent by the frontend/OAuth redirect handler after a successful OAuth flow."""
+    server_name: str
+    access_token: str
+    refresh_token: str | None = None
+    token_type: str = "Bearer"
+    expires_in: int | None = None        # seconds until expiry; used to compute expires_at
+    provider_user_id: str | None = None
+
+
+class OAuthTokenStatusResponse(BaseModel):
+    server_name: str
+    has_token: bool
+    expires_at: str | None
+    is_expired: bool
+    last_refresh_at: str | None = None
+
+
+class OAuthStartRequest(BaseModel):
+    server_name: str
+    frontend_redirect_url: str | None = None
+
+
+class OAuthStartResponse(BaseModel):
+    server_name: str
+    authorization_url: str

@@ -2,10 +2,11 @@
 CloudMCPService — all DB operations for MCP servers, connections, and tool syncing.
 
 Design: DB is the single source of truth for tool discovery.
-  register_server  → mcp_servers row
-  connect_for_user → mcp_user_connections row (status=connected)
-  sync_tools       → upsert mcp_tools rows from live discovery
-  build_mcp_configs → returns dict[name, MCPServerConfig] for PATService
+  register_server    → mcp_servers row
+  connect_for_user   → mcp_user_connections row (status=connected)
+  store_oauth_tokens → upsert mcp_credentials with encrypted tokens
+  sync_tools         → upsert mcp_tools rows from live discovery
+  build_mcp_configs  → returns dict[name, MCPServerConfig] for PATService
 """
 import uuid
 import shlex
@@ -21,11 +22,21 @@ from api.db.models import (
     MCPServer, MCPServerScope, MCPUserConnection,
     MCPCredential, MCPServerConfig, MCPTool, AuditLog,
 )
+from api.mcp.oauth import encrypt_token, decrypt_token
 
 logger = logging.getLogger(__name__)
 
 # Valid status transitions the API can set
 VALID_STATUSES = {"connected", "disconnected", "disabled", "error", "expired", "refresh_required"}
+
+
+def _normalize_transport(transport: str) -> str:
+    """Map DB transport value to the literal accepted by MCPServerConfig.
+
+    'http' is used in the DB for convenience but the config type
+    only accepts 'sse' or 'streamable-http'.
+    """
+    return "streamable-http" if transport == "http" else transport
 
 
 class CloudMCPService:
@@ -62,6 +73,12 @@ class CloudMCPService:
         async with self.db.get_session() as session:
             result = await session.execute(select(MCPServer).order_by(MCPServer.name))
             return [self._server_to_dict(s) for s in result.scalars().all()]
+
+    async def get_server(self, server_name: str) -> dict:
+        """Return one registered MCP server by slug."""
+        async with self.db.get_session() as session:
+            server = await self._get_server_by_name(session, server_name)
+            return self._server_to_dict(server)
 
     # ------------------------------------------------------------------
     # User connection management
@@ -161,14 +178,12 @@ class CloudMCPService:
             )
             return [self._tool_to_dict(t) for t in result.scalars().all()]
 
-    async def discover_and_sync(self, server_name: str) -> int:
+    async def discover_and_sync(self, server_name: str, auth_token: str | None = None) -> int:
         """Connect to the live MCP server, list its tools, persist them to mcp_tools.
 
-        Uses MCPClient directly so no Agent or Config is needed.
-        The client is disconnected immediately after discovery.
+        auth_token: optional Bearer token for OAuth-protected servers.
         Returns the number of tools synced.
         """
-        # Extract plain scalars inside the session — ORM attrs become detached after close.
         async with self.db.get_session() as session:
             server = await self._get_server_by_name(session, server_name)
             server_url = server.server_url
@@ -180,12 +195,10 @@ class CloudMCPService:
             server_config = ConfigMCPServerConfig(
                 startup_timeout_sec=timeout,
                 url=server_url,
-                transport=transport,
+                transport=_normalize_transport(transport),
+                auth_token=auth_token,
             )
         else:
-            # server_url is stored as a full shell command string, e.g.
-            # "npx @modelcontextprotocol/server-filesystem /tmp"
-            # StdioTransport requires command (executable) and args (list) separately.
             parts = shlex.split(server_url)
             server_config = ConfigMCPServerConfig(
                 startup_timeout_sec=timeout,
@@ -212,11 +225,86 @@ class CloudMCPService:
 
 
 
+    async def store_oauth_tokens(
+        self,
+        user_id: str,
+        server_name: str,
+        access_token: str,
+        refresh_token: str | None = None,
+        token_type: str = "Bearer",
+        expires_at: datetime | None = None,
+        provider_user_id: str | None = None,
+    ) -> dict:
+        """Encrypt and upsert OAuth tokens for a user–server connection.
+
+        Sets connection status to 'connected' on success.
+        Returns the connection dict.
+        """
+        async with self.db.get_session() as session:
+            server = await self._get_server_by_name(session, server_name)
+            conn = await self._get_or_create_connection(session, user_id, server.id)
+
+            # Fetch or create the credential row linked to this connection.
+            cred_result = await session.execute(
+                select(MCPCredential).where(MCPCredential.connection_id == conn.id)
+            )
+            cred = cred_result.scalar_one_or_none()
+            if not cred:
+                cred = MCPCredential(connection_id=conn.id)
+                session.add(cred)
+
+            cred.encrypted_access_token = encrypt_token(access_token)
+            cred.encrypted_refresh_token = encrypt_token(refresh_token) if refresh_token else None
+            cred.token_type = token_type
+            cred.expires_at = expires_at
+            now = datetime.utcnow()
+            cred.last_refresh_at = now
+            cred.provider_user_id = provider_user_id
+
+            conn.status = "connected"
+            conn.connected_at = now
+            conn.last_used_at = now
+
+            session.add(AuditLog(
+                user_id=uuid.UUID(user_id),
+                action="MCP_OAUTH_TOKENS_STORED",
+                metadata_json={"server": server_name},
+            ))
+
+            await session.commit()
+            await session.refresh(conn)
+            server_name_plain = server.name
+            return self._connection_to_dict(conn, server_name_plain)
+
+    async def get_oauth_token_status(self, user_id: str, server_name: str) -> dict:
+        """Return token expiry metadata for a user–server OAuth connection."""
+        async with self.db.get_session() as session:
+            server = await self._get_server_by_name(session, server_name)
+            conn = await self._require_connection(session, user_id, server.id)
+
+            cred_result = await session.execute(
+                select(MCPCredential).where(MCPCredential.connection_id == conn.id)
+            )
+            cred = cred_result.scalar_one_or_none()
+            if not cred:
+                return {"has_token": False, "expires_at": None, "is_expired": False}
+
+            now = datetime.utcnow()
+            expires_at = cred.expires_at
+            is_expired = bool(expires_at and expires_at < now)
+            return {
+                "has_token": True,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "is_expired": is_expired,
+                "last_refresh_at": cred.last_refresh_at.isoformat() if cred.last_refresh_at else None,
+            }
+
     async def build_mcp_configs(self, user_id: str) -> dict[str, ConfigMCPServerConfig]:
         """Translate DB rows into the MCPServerConfig objects that Config expects.
 
-        Only connections with status='connected' are included.
-        MCPManager consumes Config.mcp_servers as-is — no changes needed there.
+        For OAuth servers: decrypts the stored access token and injects it as
+        auth_token so MCPClient uses BearerAuth automatically.
+        Only 'connected' connections are included.
         """
         async with self.db.get_session() as session:
             result = await session.execute(
@@ -228,14 +316,41 @@ class CloudMCPService:
                     MCPServer.enabled == True,
                 )
             )
+            rows = result.all()
+
+            # Bulk-fetch credentials for all returned connection IDs.
+            conn_ids = [conn.id for conn, _ in rows]
+            creds_by_conn: dict[uuid.UUID, MCPCredential] = {}
+            if conn_ids:
+                cred_result = await session.execute(
+                    select(MCPCredential).where(MCPCredential.connection_id.in_(conn_ids))
+                )
+                for cred in cred_result.scalars().all():
+                    creds_by_conn[cred.connection_id] = cred
+
             configs: dict[str, ConfigMCPServerConfig] = {}
-            for conn, server in result.all():
+            for conn, server in rows:
                 is_url_transport = server.transport in ("sse", "http", "streamable-http")
                 if is_url_transport:
+                    # Inject decrypted Bearer token for OAuth servers.
+                    auth_token: str | None = None
+                    if server.supports_oauth:
+                        cred = creds_by_conn.get(conn.id)
+                        if cred and cred.encrypted_access_token:
+                            try:
+                                auth_token = decrypt_token(cred.encrypted_access_token)
+                            except ValueError:
+                                logger.error(
+                                    "Failed to decrypt token for server '%s', user %s — skipping",
+                                    server.name, user_id,
+                                )
+                                continue  # skip this server rather than sending bad token
+
                     cfg = ConfigMCPServerConfig(
                         startup_timeout_sec=server.startup_timeout_sec or 30,
                         url=server.server_url,
-                        transport=server.transport,
+                        transport=_normalize_transport(server.transport),
+                        auth_token=auth_token,
                     )
                 else:
                     parts = shlex.split(server.server_url)
@@ -247,9 +362,6 @@ class CloudMCPService:
                 configs[server.name] = cfg
             return configs
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     async def _get_server_by_name(self, session, name: str) -> MCPServer:
         result = await session.execute(select(MCPServer).where(MCPServer.name == name))

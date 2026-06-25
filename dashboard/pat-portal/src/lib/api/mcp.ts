@@ -41,6 +41,33 @@ export interface MCPTool {
   updated_at: string;
 }
 
+export interface OAuthSubmission {
+  server_name: string;
+  access_token: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;       // seconds
+  provider_user_id?: string;
+}
+
+export interface OAuthStart {
+  server_name: string;
+  frontend_redirect_url?: string;
+}
+
+export interface OAuthStartResponse {
+  server_name: string;
+  authorization_url: string;
+}
+
+export interface OAuthTokenStatus {
+  server_name: string;
+  has_token: boolean;
+  expires_at: string | null;
+  is_expired: boolean;
+  last_refresh_at: string | null;
+}
+
 export const mcpApi = {
   listServers: async (): Promise<MCPServer[]> => {
     const res = await apiClient.get<MCPServer[]>('/mcp/servers');
@@ -81,6 +108,22 @@ export const mcpApi = {
 
   getServerTools: async (serverName: string): Promise<MCPTool[]> => {
     const res = await apiClient.get<MCPTool[]>(`/mcp/servers/${serverName}/tools`);
+    return res.data;
+  },
+
+  // Submit an OAuth access token after the user completes the OAuth browser flow.
+  submitOAuthToken: async (data: OAuthSubmission): Promise<MCPConnection> => {
+    const res = await apiClient.post<MCPConnection>('/mcp/oauth/callback', data);
+    return res.data;
+  },
+
+  startOAuth: async (data: OAuthStart): Promise<OAuthStartResponse> => {
+    const res = await apiClient.post<OAuthStartResponse>('/mcp/oauth/start', data);
+    return res.data;
+  },
+
+  getOAuthTokenStatus: async (serverName: string): Promise<OAuthTokenStatus> => {
+    const res = await apiClient.get<OAuthTokenStatus>(`/mcp/oauth/token-status/${serverName}`);
     return res.data;
   },
 };

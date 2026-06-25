@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { mcpApi, MCPServer, MCPServerCreate } from '@/lib/api/mcp';
 import {
-  Plus, X, Loader2, Plug, PlugZap, Link2Off, ChevronDown, ChevronRight, RefreshCw,
+  Plus, X, Loader2, Plug, PlugZap, Link2Off, ChevronDown, ChevronRight, RefreshCw, KeyRound,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -77,7 +78,7 @@ function RegisterServerModal({ onClose }: { onClose: () => void }) {
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1.5">Startup Timeout (s)</label>
               <input type="number" value={form.startup_timeout_sec ?? 30}
-                onChange={e => set('startup_timeout_sec', parseInt(e.target.value))}
+                onChange={e => set('startup_timeout_sec', e.target.value === '' ? 30 : Number(e.target.value))}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500" />
             </div>
           </div>
@@ -141,6 +142,16 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
     },
   });
 
+  const oauthMutation = useMutation({
+    mutationFn: () => mcpApi.startOAuth({
+      server_name: server.name,
+      frontend_redirect_url: window.location.origin + window.location.pathname,
+    }),
+    onSuccess: (data) => {
+      window.location.href = data.authorization_url;
+    },
+  });
+
   const status = connection?.status ?? 'not connected';
   const isConnected = status === 'connected';
 
@@ -174,12 +185,19 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
 
         {/* Status */}
         <td className="px-6 py-4">
-          <span className={clsx(
-            'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border',
-            statusColor[status] ?? statusColor.disconnected
-          )}>
-            {status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={clsx(
+              'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border',
+              statusColor[status] ?? statusColor.disconnected
+            )}>
+              {status}
+            </span>
+            {server.supports_oauth && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                OAuth
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Actions */}
@@ -187,11 +205,11 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
           <div className="flex items-center gap-2">
             {!isConnected ? (
               <button
-                onClick={() => connectMutation.mutate()}
-                disabled={connectMutation.isPending}
+                onClick={() => server.supports_oauth ? oauthMutation.mutate() : connectMutation.mutate()}
+                disabled={connectMutation.isPending || oauthMutation.isPending}
                 className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-300 hover:border-emerald-500 hover:text-emerald-400 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
               >
-                {connectMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlugZap size={12} />}
+                {connectMutation.isPending || oauthMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlugZap size={12} />}
                 Connect
               </button>
             ) : (
@@ -205,16 +223,31 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
               </button>
             )}
 
-            {/* Sync Tools */}
-            <button
-              onClick={() => discoverMutation.mutate()}
-              disabled={discoverMutation.isPending}
-              className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-300 hover:border-blue-500 hover:text-blue-400 px-2.5 py-1 rounded transition-colors disabled:opacity-50 ml-2"
-              title="Discover & Sync Tools"
-            >
-              {discoverMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-              Sync Tools
-            </button>
+            {/* OAuth token button — shown only for OAuth servers */}
+            {server.supports_oauth && (
+              <button
+                onClick={() => oauthMutation.mutate()}
+                disabled={oauthMutation.isPending}
+                className="flex items-center gap-1.5 text-xs border border-violet-700 text-violet-400 hover:border-violet-400 hover:text-violet-300 px-2.5 py-1 rounded transition-colors ml-2"
+                title="Authorize OAuth"
+              >
+                {oauthMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+                Authorize
+              </button>
+            )}
+
+            {/* Sync Tools — hidden for OAuth servers: live discovery requires a valid token */}
+            {!server.supports_oauth && (
+              <button
+                onClick={() => discoverMutation.mutate()}
+                disabled={discoverMutation.isPending}
+                className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-300 hover:border-blue-500 hover:text-blue-400 px-2.5 py-1 rounded transition-colors disabled:opacity-50 ml-2"
+                title="Discover & Sync Tools"
+              >
+                {discoverMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                Sync Tools
+              </button>
+            )}
 
             {/* Toggle tool drawer */}
             <button
@@ -268,17 +301,49 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
 }
 
 // ------------------------------------------------------------------
+// Reads ?connected=1&server=X or ?error=... after the OAuth redirect.
+// Must be a separate component because useSearchParams() requires Suspense.
+// ------------------------------------------------------------------
+function OAuthCallbackHandler({
+  onMessage,
+}: {
+  onMessage: (msg: string | null) => void;
+}) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const connected = params.get('connected');
+    const server = params.get('server');
+    const error = params.get('error');
+
+    if (connected && server) {
+      onMessage(`✓ ${server} authorized and connected.`);
+      // Force-refetch so the status chip updates immediately, not after next poll.
+      qc.refetchQueries({ queryKey: ['mcpStatus'] });
+      router.replace('/mcp');
+    } else if (error) {
+      onMessage(`OAuth failed: ${decodeURIComponent(error)}`);
+      router.replace('/mcp');
+    }
+  }, [params, qc, router, onMessage]);
+
+  return null;
+}
+
+// ------------------------------------------------------------------
 // Page
 // ------------------------------------------------------------------
 export default function MCPPage() {
   const [showRegister, setShowRegister] = useState(false);
+  const [oauthMessage, setOauthMessage] = useState<string | null>(null);
 
   const { data: servers, isLoading: loadingServers } = useQuery({
     queryKey: ['mcpServers'],
     queryFn: mcpApi.listServers,
   });
 
-  // User's per-server connection statuses — keyed by server_name for O(1) lookup
   const { data: connections } = useQuery({
     queryKey: ['mcpStatus'],
     queryFn: mcpApi.getStatus,
@@ -291,6 +356,11 @@ export default function MCPPage() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
+      {/* Suspense required by Next.js App Router for useSearchParams() */}
+      <Suspense fallback={null}>
+        <OAuthCallbackHandler onMessage={setOauthMessage} />
+      </Suspense>
+
       {showRegister && <RegisterServerModal onClose={() => setShowRegister(false)} />}
 
       <div className="flex items-center justify-between">
@@ -308,6 +378,20 @@ export default function MCPPage() {
           Register Server
         </button>
       </div>
+
+      {oauthMessage && (
+        <div className={clsx(
+          'flex items-center justify-between rounded-md px-4 py-3 text-sm border',
+          oauthMessage.startsWith('✓')
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+            : 'border-red-500/30 bg-red-500/10 text-red-300'
+        )}>
+          <span>{oauthMessage}</span>
+          <button onClick={() => setOauthMessage(null)} className="text-zinc-500 hover:text-zinc-300 ml-4">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       <div className="border border-zinc-800 rounded-xl overflow-hidden bg-[#0A0A0A]">
         <table className="w-full text-left text-sm">

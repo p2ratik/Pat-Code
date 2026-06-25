@@ -9,15 +9,28 @@ MCP API routes.
   POST /mcp/servers/{name}/sync  → upsert tool cache for a server (admin only)
   GET  /mcp/servers/{name}/tools → read cached tools for a server
 """
+import logging
+import os
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from api.auth.dependencies import get_current_user
 from api.mcp.models import (
     MCPServerCreate, MCPServerResponse,
     MCPConnectRequest, MCPDisconnectRequest, MCPConnectionResponse,
-    MCPToolResponse,
+    MCPToolResponse, OAuthCallbackRequest, OAuthTokenStatusResponse,
+    OAuthStartRequest, OAuthStartResponse,
+)
+from api.mcp.oauth_flow import (
+    build_authorization_flow,
+    dumps_flow,
+    exchange_authorization_code,
+    loads_flow,
 )
 
 router = APIRouter(tags=["mcp"])
+logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------
@@ -173,3 +186,165 @@ async def user_status(
     mcp_service = request.app.state.mcp_service
     connections = await mcp_service.get_user_connections(current_user["id"])
     return [MCPConnectionResponse(**c) for c in connections]
+
+
+# ------------------------------------------------------------------
+# OAuth token management (user-scoped)
+# ------------------------------------------------------------------
+
+@router.post("/oauth/start", response_model=OAuthStartResponse)
+async def oauth_start(
+    body: OAuthStartRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Start the MCP OAuth browser flow and return the provider authorization URL."""
+    mcp_service = request.app.state.mcp_service
+    try:
+        server = await mcp_service.get_server(body.server_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if not server.get("supports_oauth"):
+        raise HTTPException(status_code=400, detail="MCP server does not support OAuth")
+
+    callback_url = str(request.url_for("oauth_browser_callback"))
+    try:
+        flow = await build_authorization_flow(server["server_url"], callback_url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OAuth discovery failed: {e}")
+
+    flow.update({
+        "user_id": current_user["id"],
+        "server_name": body.server_name,
+        "frontend_redirect_url": body.frontend_redirect_url,
+    })
+    await request.app.state.redis.setex(
+        f"mcp_oauth_state:{flow['state']}",
+        600,
+        dumps_flow(flow),
+    )
+    return OAuthStartResponse(
+        server_name=body.server_name,
+        authorization_url=flow["authorization_url"],
+    )
+
+
+@router.get("/oauth/callback", name="oauth_browser_callback")
+async def oauth_browser_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    """OAuth provider redirect endpoint; exchanges code and stores encrypted tokens."""
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing OAuth state")
+
+    raw_flow = await request.app.state.redis.get(f"mcp_oauth_state:{state}")
+    if not raw_flow:
+        raise HTTPException(status_code=400, detail="OAuth state expired or invalid")
+    await request.app.state.redis.delete(f"mcp_oauth_state:{state}")
+
+    flow = loads_flow(raw_flow)
+    frontend_redirect_url = flow.get("frontend_redirect_url")
+    if error:
+        return _oauth_redirect(frontend_redirect_url, error=error)
+    if not code:
+        return _oauth_redirect(frontend_redirect_url, error="missing_code")
+
+    try:
+        token_payload = await exchange_authorization_code(flow, code)
+        from datetime import datetime, timedelta
+
+        expires_at = None
+        if token_payload.get("expires_in") is not None:
+            expires_at = datetime.utcnow() + timedelta(seconds=int(token_payload["expires_in"]))
+
+        await request.app.state.mcp_service.store_oauth_tokens(
+            user_id=flow["user_id"],
+            server_name=flow["server_name"],
+            access_token=token_payload["access_token"],
+            refresh_token=token_payload.get("refresh_token"),
+            token_type=token_payload.get("token_type", "Bearer"),
+            expires_at=expires_at,
+            provider_user_id=token_payload.get("provider_user_id"),
+        )
+    except Exception as e:
+        return _oauth_redirect(frontend_redirect_url, error=str(e))
+
+    # Auto-discover tools using the fresh access token so they appear immediately.
+    # Non-fatal: a failed sync never blocks the successful auth redirect.
+    try:
+        await request.app.state.mcp_service.discover_and_sync(
+            flow["server_name"],
+            auth_token=token_payload["access_token"],
+        )
+    except Exception as exc:
+        logger.warning("Post-OAuth tool discovery failed for '%s': %s", flow["server_name"], exc)
+
+    return _oauth_redirect(frontend_redirect_url, server=flow["server_name"], connected="1")
+
+@router.post("/oauth/callback", response_model=MCPConnectionResponse)
+async def oauth_callback(
+    body: OAuthCallbackRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Receive an OAuth access token after a successful OAuth flow and store it encrypted.
+
+    The frontend completes the OAuth redirect, extracts the token, and POSTs
+    it here. The server encrypts it with Fernet (MCP_ENCRYPTION_KEY) before
+    writing to mcp_credentials. The connection status is set to 'connected'.
+    """
+    from datetime import datetime, timedelta
+
+    expires_at: datetime | None = None
+    if body.expires_in is not None:
+        expires_at = datetime.utcnow() + timedelta(seconds=body.expires_in)
+
+    mcp_service = request.app.state.mcp_service
+    try:
+        conn = await mcp_service.store_oauth_tokens(
+            user_id=current_user["id"],
+            server_name=body.server_name,
+            access_token=body.access_token,
+            refresh_token=body.refresh_token,
+            token_type=body.token_type,
+            expires_at=expires_at,
+            provider_user_id=body.provider_user_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        # MCP_ENCRYPTION_KEY missing
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return MCPConnectionResponse(**conn)
+
+
+@router.get("/oauth/token-status/{server_name}", response_model=OAuthTokenStatusResponse)
+async def oauth_token_status(
+    server_name: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return token expiry metadata for the current user's OAuth connection.
+
+    Never returns the decrypted token — only whether one exists and if it has expired.
+    """
+    mcp_service = request.app.state.mcp_service
+    try:
+        status = await mcp_service.get_oauth_token_status(current_user["id"], server_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return OAuthTokenStatusResponse(server_name=server_name, **status)
+
+
+def _oauth_redirect(frontend_redirect_url: str | None, **params: str) -> RedirectResponse:
+    target = frontend_redirect_url or os.environ.get("FRONTEND_URL") or "http://localhost:3000/mcp"
+    clean_params = {k: v for k, v in params.items() if v}
+    separator = "&" if "?" in target else "?"
+    redirect_url = f"{target}{separator}{urlencode(clean_params)}"
+    logger.info("Redirecting MCP OAuth callback to %s", redirect_url)
+    return RedirectResponse(redirect_url, status_code=303)
