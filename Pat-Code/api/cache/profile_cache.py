@@ -99,9 +99,6 @@ class ProfileCache:
         self.db = db
         self.redis = redis
 
-    # ------------------------------------------------------------------
-    # Cache key helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _profile_key(user_id: str) -> str:
@@ -115,9 +112,7 @@ class ProfileCache:
     def _tools_key(profile_id: str) -> str:
         return f"tools:{profile_id}"
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+
 
     async def get_profile_config(self, user_id: str) -> ProfileConfig:
         """Return the ProfileConfig for user_id, using Redis when warm.

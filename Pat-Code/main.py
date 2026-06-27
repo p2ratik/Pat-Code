@@ -65,7 +65,7 @@ class CLI:
         console.print("\n[dim]Goodbye![/dim]")                 
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
-        tool = self.agent.session.tool_registry.get(tool_name)
+        tool = self.agent.runtime.tool_registry.get(tool_name)
         if not tool:
             return None
 
@@ -76,9 +76,9 @@ class CLI:
         if not self.agent:
             return
 
-        servers = self.agent.session.mcp_manager.get_all_servers()
+        servers = self.agent.runtime.mcp_manager.get_all_servers()
         mcp_tool_names = sorted(
-            [tool.name for tool in self.agent.session.tool_registry.connected_mcp_servers]
+            [tool.name for tool in self.agent.runtime.tool_registry.connected_mcp_servers]
         )
         self.tui.print_mcp_status(servers, mcp_tool_names)
 
@@ -93,7 +93,7 @@ class CLI:
         elif cmd_name == "/help":
             self.tui.show_help()
         elif cmd_name == "/clear":
-            self.agent.session.context_manager.clear()
+            self.agent.runtime.context_manager.clear()
             console.print("[success]Conversation cleared [/success]")
         elif cmd_name == "/config":
             console.print("\n[bold]Current Configuration[/bold]")
@@ -127,17 +127,17 @@ class CLI:
             else:
                 console.print(f"Current approval policy: {self.config.approval.value}")
         elif cmd_name == "/stats":
-            stats = self.agent.session.get_stats()
+            stats = self.agent.runtime.get_stats()
             console.print("\n[bold]Session Statistics [/bold]")
             for key, value in stats.items():
                 console.print(f"   {key}: {value}")
         elif cmd_name == "/tools":
-            tools = self.agent.session.tool_registry.get_tools()
+            tools = self.agent.runtime.tool_registry.get_tools()
             console.print(f"\n[bold]Available tools ({len(tools)}) [/bold]")
             for tool in tools:
                 console.print(f"  • {tool.name}")
         elif cmd_name == "/mcp":
-            mcp_servers = self.agent.session.mcp_manager.get_all_servers()
+            mcp_servers = self.agent.runtime.mcp_manager.get_all_servers()
             console.print(f"\n[bold]MCP Servers ({len(mcp_servers)}) [/bold]")
             for server in mcp_servers:
                 status = server["status"]
@@ -148,16 +148,16 @@ class CLI:
         elif cmd_name == "/save":
             persistence_manager = PersistenceManager()
             session_snapshot = SessionSnapshot(
-                session_id=self.agent.session.session_id,
-                created_at=self.agent.session.created_at,
-                updated_at=self.agent.session.updated_at,
-                turn_count=self.agent.session.turn_count,
-                messages=self.agent.session.context_manager.get_messages(),
-                total_usage=self.agent.session.context_manager.total_usage,
+                session_id=self.agent.runtime.session_id,
+                created_at=self.agent.runtime.created_at,
+                updated_at=self.agent.runtime.updated_at,
+                turn_count=self.agent.runtime.turn_count,
+                messages=self.agent.runtime.context_manager.get_messages(),
+                total_usage=self.agent.runtime.context_manager.total_usage,
             )
             persistence_manager.save_session(session_snapshot)
             console.print(
-                f"[success]Session saved: {self.agent.session.session_id}[/success]"
+                f"[success]Session saved: {self.agent.runtime.session_id}[/success]"
             )
         elif cmd_name == "/sessions":
             persistence_manager = PersistenceManager()
@@ -202,28 +202,28 @@ class CLI:
                                 msg.get("tool_call_id", ""), msg.get("content", "")
                             )
 
-                    await self.agent.session.client.close()
-                    await self.agent.session.mcp_manager.shutdown()
+                    await self.agent.runtime.client.close()
+                    await self.agent.runtime.mcp_manager.shutdown()
 
-                    self.agent.session = session
+                    self.agent.runtime = session
                     console.print(
                         f"[success]Resumed session: {session.session_id}[/success]"
                     )
         elif cmd_name == "/checkpoint":
             persistence_manager = PersistenceManager()
             session_snapshot = SessionSnapshot(
-                session_id=self.agent.session.session_id,
-                created_at=self.agent.session.created_at,
-                updated_at=self.agent.session.updated_at,
-                turn_count=self.agent.session.turn_count,
-                messages=self.agent.session.context_manager.get_messages(),
-                total_usage=self.agent.session.context_manager.total_usage,
+                session_id=self.agent.runtime.session_id,
+                created_at=self.agent.runtime.created_at,
+                updated_at=self.agent.runtime.updated_at,
+                turn_count=self.agent.runtime.turn_count,
+                messages=self.agent.runtime.context_manager.get_messages(),
+                total_usage=self.agent.runtime.context_manager.total_usage,
             )
             checkpoint_id = persistence_manager.save_checkpoint(session_snapshot)
             console.print(f"[success]Checkpoint created: {checkpoint_id}[/success]")
         elif cmd_name == "/listcheckpoints":
             persistence_manager = PersistenceManager()
-            checkpoints = persistence_manager.list_checkpoints(self.agent.session.session_id)
+            checkpoints = persistence_manager.list_checkpoints(self.agent.runtime.session_id)
             console.print("\n[bold]Saved Checkpoints for current Session[/bold]")
             for s in checkpoints:
                 console.print(
@@ -265,10 +265,10 @@ class CLI:
                                 msg.get("tool_call_id", ""), msg.get("content", "")
                             )
 
-                    await self.agent.session.client.close()
-                    await self.agent.session.mcp_manager.shutdown()
+                    await self.agent.runtime.client.close()
+                    await self.agent.runtime.mcp_manager.shutdown()
 
-                    self.agent.session = session
+                    self.agent.runtime = session
                     console.print(
                         f"[success]Resumed session: {session.session_id}, checkpoint: {cmd_args}[/success]"
                     )
