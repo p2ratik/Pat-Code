@@ -4,7 +4,7 @@ from enum import Enum
 from client.response import TokenUsage
 from dataclasses import dataclass
 
-from tools.base import ToolResult
+from tools.base import ExecutionResult
 
 
 class AgentEventType(str, Enum):
@@ -71,7 +71,7 @@ class AgentEvent:
         cls,
         call_id: str,
         name: str,
-        result: ToolResult,
+        result: ExecutionResult,
     ):
         return cls(
             type=AgentEventType.TOOL_CALL_COMPLETE,
@@ -85,5 +85,8 @@ class AgentEvent:
                 "diff": result.diff.to_diff() if result.diff else None,
                 "truncated": result.truncated,
                 "exit_code": result.exit_code,
+                "execution_id": result.execution_id,
+                "duration_ms": result.duration_ms,
+                "attempts": result.attempts,
             },
         )

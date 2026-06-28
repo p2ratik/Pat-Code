@@ -16,6 +16,7 @@ from client.llm_client import LLMClient
 from context.manager import ContextManager
 from context.compaction import ChatCompactor
 from safety.approval import ApprovalManager
+from agent.execution_engine import ExecutionEngine
 from tools.registry import ToolRegistry
 from config.config import Config
 
@@ -33,6 +34,7 @@ class AgentRuntime(Protocol):
     context_manager: ContextManager
     chat_compactor: ChatCompactor
     tool_registry: ToolRegistry
+    execution_engine: ExecutionEngine
     approval_manager: ApprovalManager
 
     # --- optional persistence (NoOpDBManager for cloud) ---

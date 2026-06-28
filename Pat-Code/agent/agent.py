@@ -125,7 +125,7 @@ class Agent:
                     tool_call.arguments,
                 )
 
-                result = await self.runtime.tool_registry.invoke(
+                result = await self.runtime.execution_engine.execute(
                     tool_call.name,
                     tool_call.arguments,
                     self.config.cwd,

@@ -1,4 +1,5 @@
 import abc
+import uuid
 from pydantic import BaseModel, ValidationError
 from enum import Enum
 from typing import Any
@@ -89,6 +90,53 @@ class ToolResult:
         
         return f"Error : {self.error}\n\nOutput:\n{self.output}"
 
+
+@dataclass
+class ExecutionResult:
+
+    tool_result: ToolResult
+
+
+    tool_name: str = ""
+    execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    duration_ms: float = 0.0          # wall-clock time of the invoke phase
+    attempts: int = 1                 
+
+    verified: bool | None = None      # VerificationEngine → was output verified?
+    classification: str | None = None # ErrorClassifier   → error category tag
+    recovered: bool = False             
+
+
+    @property
+    def success(self) -> bool:
+        return self.tool_result.success
+
+    @property
+    def output(self) -> str:
+        return self.tool_result.output
+
+    @property
+    def error(self) -> str | None:
+        return self.tool_result.error
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self.tool_result.metadata
+
+    @property
+    def diff(self) -> "FileDiff | None":
+        return self.tool_result.diff
+
+    @property
+    def truncated(self) -> bool:
+        return self.tool_result.truncated
+
+    @property
+    def exit_code(self) -> int | None:
+        return self.tool_result.exit_code
+
+    def to_model_output(self) -> str:
+        return self.tool_result.to_model_output()
 
 
 @dataclass

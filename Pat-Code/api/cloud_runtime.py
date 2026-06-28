@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from agent.execution_engine import ExecutionEngine
 from client.llm_client import LLMClient
 from context.compaction import ChatCompactor
 from context.manager import ContextManager
@@ -168,7 +169,7 @@ class CloudAgentRuntime:
         if config.system_prompt_override:
             context_manager._system_prompt = config.system_prompt_override
 
-        return cls(
+        runtime = cls(
             config=config,
             client=client,
             context_manager=context_manager,
@@ -177,6 +178,10 @@ class CloudAgentRuntime:
             approval_manager=approval_manager,
             mcp_manager=mcp_manager,
         )
+        runtime.execution_engine = ExecutionEngine(
+            runtime=runtime,
+        )
+        return runtime
 
     # ------------------------------------------------------------------
     # AgentRuntime protocol
