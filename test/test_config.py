@@ -18,10 +18,6 @@ from config.config import (
 )
 
 
-# ---------------------------------------------------------------------------
-# ModelConfig
-# ---------------------------------------------------------------------------
-
 class TestModelConfig:
     def test_defaults(self):
         m = ModelConfig()
@@ -47,10 +43,6 @@ class TestModelConfig:
         ModelConfig(temperature=2.0)
 
 
-# ---------------------------------------------------------------------------
-# ShellEnvironmentPolicy
-# ---------------------------------------------------------------------------
-
 class TestShellEnvironmentPolicy:
     def test_defaults(self):
         s = ShellEnvironmentPolicy()
@@ -61,11 +53,6 @@ class TestShellEnvironmentPolicy:
         s = ShellEnvironmentPolicy(exclude_patterns=["*PASS*"])
         assert "*PASS*" in s.exclude_patterns
         assert "*KEY*" not in s.exclude_patterns
-
-
-# ---------------------------------------------------------------------------
-# MCPServerConfig
-# ---------------------------------------------------------------------------
 
 class TestMCPServerConfig:
     def test_stdio_transport(self):
@@ -87,10 +74,6 @@ class TestMCPServerConfig:
             MCPServerConfig(command="npx", url="http://localhost:8080")
 
 
-# ---------------------------------------------------------------------------
-# ApprovalPolicy
-# ---------------------------------------------------------------------------
-
 class TestApprovalPolicy:
     def test_all_values_present(self):
         values = {p.value for p in ApprovalPolicy}
@@ -105,9 +88,6 @@ class TestApprovalPolicy:
         assert ApprovalPolicy("auto") == ApprovalPolicy.AUTO
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 class TestConfig:
     def test_defaults(self, tmp_path):
@@ -176,9 +156,6 @@ class TestConfig:
         assert "my-server" in cfg.mcp_servers
 
 
-# ---------------------------------------------------------------------------
-# SubagentDefinition (dataclass)
-# ---------------------------------------------------------------------------
 
 class TestSubagentDefinition:
     def test_defaults(self):

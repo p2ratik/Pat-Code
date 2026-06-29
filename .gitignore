@@ -10,5 +10,4 @@ Pat-Code/.env
 Pat-Code/pat_agent.egg-info
 .venv2
 .vscode
-Pat-Code/graphify-out
 Pat-Code/.agents

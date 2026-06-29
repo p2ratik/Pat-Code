@@ -243,9 +243,6 @@ class TestCommandClassification:
         assert not is_safe_command("python main.py")
 
 
-# ---------------------------------------------------------------------------
-# ApprovalManager
-# ---------------------------------------------------------------------------
 
 class TestApprovalManager:
     def _ctx(self, is_mutating=True, command=None, is_dangerous=False, paths=None):

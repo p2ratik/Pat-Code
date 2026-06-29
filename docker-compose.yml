@@ -29,29 +29,6 @@ services:
       timeout: 5s
       retries: 10
 
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: pat-api
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    env_file:
-      - Pat-Code/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://pat:pat@postgres:5432/patdb
-      REDIS_URL: redis://redis:6379/0
-      PYTHONUNBUFFERED: "1"
-    ports:
-      - "8000:8000"
-    volumes:
-      # Persist the SQLite DB (platformdirs resolves to this path inside container)
-      - pat_sqlite_data:/root/.config/ai-agent
-    command: ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 volumes:
   postgres_data:
