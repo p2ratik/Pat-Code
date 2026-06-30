@@ -52,8 +52,7 @@ class ExecutionEngine:
                 result = await hook.after_execute(ctx, result)
 
             if ctx.state.retry_requested:
-                ctx.state.retry_requested = False
-                ctx.state.verification = None
+                ctx.state.reset()
                 ctx.attempt += 1
                 continue
 

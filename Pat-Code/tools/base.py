@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from pydantic.json_schema import model_json_schema
 from config.config import Config
+from agent.hooks.processors.base import ProcessedOutput
 
 class Toolkind(str, Enum):
     READ = "read"
@@ -96,16 +97,16 @@ class ExecutionResult:
 
     tool_result: ToolResult
 
-
     tool_name: str = ""
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    duration_ms: float = 0.0          # wall-clock time of the invoke phase
-    attempts: int = 1                 
+    duration_ms: float = 0.0
+    attempts: int = 1
 
-    verified: bool | None = None      # VerificationEngine → was output verified?
-    classification: str | None = None # ErrorClassifier   → error category tag
-    recovered: bool = False             
-
+    verified: bool | None = None
+    classification: str | None = None
+    recovered: bool = False
+    repair_instruction: str | None = None
+    processed_output: ProcessedOutput | None = None
 
     @property
     def success(self) -> bool:
@@ -136,6 +137,10 @@ class ExecutionResult:
         return self.tool_result.exit_code
 
     def to_model_output(self) -> str:
+        if self.repair_instruction:
+            return self.repair_instruction
+        if self.processed_output:
+            return self.processed_output.content
         return self.tool_result.to_model_output()
 
 

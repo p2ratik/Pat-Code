@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
 
-from agent.hooks.base import ExecutionContext, ExecutionState, VerificationResult
+from agent.hooks.base import ExecutionContext, ExecutionState, RetryMode, VerificationResult
 from agent.hooks.verification import VerificationHook
 from agent.execution_engine import ExecutionEngine
 from tools.base import ExecutionResult, ToolResult, Tool, Toolkind
@@ -56,7 +56,7 @@ async def test_verification_hook_empty_output(base_context):
 
     assert base_context.state.verification.passed is False
     assert "Tool succeeded but returned empty output" in base_context.state.verification.issues
-    assert base_context.state.verification.retryable is True
+    assert base_context.state.verification.retry_mode == RetryMode.ENGINE
 
 @pytest.mark.asyncio
 async def test_verification_hook_shell_exit_code(base_context):
@@ -114,7 +114,7 @@ async def test_execution_engine_retry_loop(mock_runtime, mock_tool):
 
     class RetrySignalingHook:
         async def before_execute(self, ctx):
-            pass
+            ctx.max_attempts = 3
 
         async def after_execute(self, ctx, result):
             if ctx.attempt == 1:
@@ -128,3 +128,89 @@ async def test_execution_engine_retry_loop(mock_runtime, mock_tool):
     assert mock_runtime.tool_registry.invoke.call_count == 2
     assert result.attempts == 2
     assert result.recovered is True
+
+from agent.hooks.retry import RetryHook
+
+@pytest.mark.asyncio
+async def test_retry_hook_engine_mode(base_context):
+    hook = RetryHook(max_attempts=3)
+    await hook.before_execute(base_context)
+    
+    base_context.state.verification = VerificationResult(
+        passed=False,
+        confidence=0.0,
+        issues=["Tool succeeded but returned empty output"],
+        retry_mode=RetryMode.ENGINE,
+        repair_instruction="SYSTEM REPAIR NOTICE\nTool: mock_tool\nIssue: Empty output",
+    )
+    
+    tool_result = ToolResult.success_result(output="   ")
+    exec_result = ExecutionResult(tool_result=tool_result)
+    
+    result = await hook.after_execute(base_context, exec_result)
+    
+    assert base_context.state.retry_requested is True
+    assert "SYSTEM REPAIR NOTICE" not in result.tool_result.output
+
+@pytest.mark.asyncio
+async def test_retry_hook_agent_mode(base_context):
+    hook = RetryHook(max_attempts=3)
+    await hook.before_execute(base_context)
+    
+    repair_msg = "SYSTEM REPAIR NOTICE\nTool: mock_tool\nIssue: SyntaxError"
+    base_context.state.verification = VerificationResult(
+        passed=False,
+        confidence=0.0,
+        issues=["Non-zero exit code: 1"],
+        retry_mode=RetryMode.AGENT,
+        repair_instruction=repair_msg,
+    )
+    
+    tool_result = ToolResult.success_result(output="error log", exit_code=1)
+    exec_result = ExecutionResult(tool_result=tool_result)
+    
+    result = await hook.after_execute(base_context, exec_result)
+    
+    assert base_context.state.retry_requested is False
+    assert result.repair_instruction == repair_msg
+
+@pytest.mark.asyncio
+async def test_retry_hook_none_mode(base_context):
+    hook = RetryHook(max_attempts=3)
+    await hook.before_execute(base_context)
+    
+    base_context.state.verification = VerificationResult(
+        passed=True,
+        confidence=1.0,
+        issues=[],
+        retry_mode=RetryMode.NONE,
+    )
+    
+    tool_result = ToolResult.success_result(output="valid")
+    exec_result = ExecutionResult(tool_result=tool_result)
+    
+    result = await hook.after_execute(base_context, exec_result)
+    
+    assert base_context.state.retry_requested is False
+    assert result.tool_result.output == "valid"
+
+@pytest.mark.asyncio
+async def test_retry_hook_exhaustion(base_context):
+    hook = RetryHook(max_attempts=2)
+    await hook.before_execute(base_context)
+    
+    base_context.attempt = 2
+    base_context.state.verification = VerificationResult(
+        passed=False,
+        confidence=0.0,
+        issues=["Empty"],
+        retry_mode=RetryMode.ENGINE,
+        repair_instruction="Repair msg",
+    )
+    
+    tool_result = ToolResult.success_result(output=" ")
+    exec_result = ExecutionResult(tool_result=tool_result)
+    
+    result = await hook.after_execute(base_context, exec_result)
+    
+    assert base_context.state.retry_requested is False

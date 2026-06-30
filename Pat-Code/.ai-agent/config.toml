@@ -118,7 +118,7 @@ enabled = false
 url = "https://mcp.notion.com/mcp"
 transport = "streamable-http"
 startup_timeout_sec = 120  # OAuth browser flow needs time — do not set below 60
-enabled = true
+enabled = false
 
 [mcp_servers.notion.oauth]
 # Leave client_id / client_secret empty — fastmcp does full discovery
