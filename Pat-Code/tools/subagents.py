@@ -26,6 +26,7 @@ class SubagentDefinition:
 
 class SubagentTool(Tool):
     kind = Toolkind.MCP
+    requires_semantic_verification = True
 
     def __init__(self, config: "Config", definition: SubagentDefinition):
         super().__init__(config)

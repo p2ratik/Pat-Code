@@ -19,6 +19,7 @@ class WebFetchTool(Tool):
     name = "web_fetch"
     description = "Fetch content from a URL. Returns the response body as text"
     kind = Toolkind.NETWORK
+    requires_semantic_verification = True
     schema = WebFetchParams
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:

@@ -155,6 +155,7 @@ class Tool(abc.ABC):
     name : str = "base_tool"
     description : str = "Base_Tool"
     kind : Toolkind.READ
+    requires_semantic_verification: bool = False
 
     def __init__(self, config: Config):
         super().__init__()

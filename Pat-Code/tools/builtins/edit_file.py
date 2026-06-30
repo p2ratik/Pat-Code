@@ -40,6 +40,7 @@ class EditTool(Tool):
         "For creating new files or complete rewrites, use write_file instead."
     )
     kind = Toolkind.WRITE
+    requires_semantic_verification = True
     schema = EditParams
 
     async def get_confirmation(

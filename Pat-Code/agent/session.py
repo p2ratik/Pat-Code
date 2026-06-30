@@ -3,6 +3,7 @@ import json
 from typing import Any
 import uuid
 from agent.execution_engine import ExecutionEngine
+from agent.hooks import VerificationHook
 from client.llm_client import LLMClient
 from config.config import Config
 from config.loader import get_data_dir
@@ -25,6 +26,7 @@ class Session:
         self.tool_registry = create_default_registry(config)
         self.execution_engine = ExecutionEngine(
             runtime=self,
+            hooks=[VerificationHook()],
         )
         self.context_manager: ContextManager | None 
         self.discovery_manager = ToolDiscoveryManager(

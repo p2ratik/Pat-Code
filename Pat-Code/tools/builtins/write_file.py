@@ -22,6 +22,7 @@ class WriteFileTool(Tool):
         "For partial modifications, use the edit tool instead."
     )
     kind = Toolkind.WRITE
+    requires_semantic_verification = True
     schema = WriteFileParams  # property
 
     async def get_confirmation(

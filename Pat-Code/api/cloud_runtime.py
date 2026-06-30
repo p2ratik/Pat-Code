@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agent.execution_engine import ExecutionEngine
+from agent.hooks import VerificationHook
 from client.llm_client import LLMClient
 from context.compaction import ChatCompactor
 from context.manager import ContextManager
@@ -180,6 +181,7 @@ class CloudAgentRuntime:
         )
         runtime.execution_engine = ExecutionEngine(
             runtime=runtime,
+            hooks=[VerificationHook()],
         )
         return runtime
 

@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent.hooks.base import ExecutionContext, ExecutionHook, ExecutionState
 from tools.base import ExecutionResult, ToolResult
 
 
@@ -13,17 +14,13 @@ class ExecutionEngine:
 
     Lifecycle
     ---------
-    _pre_execute()           ← placeholder: VerificationEngine pre-checks, rate-limit guards, etc.
-    _invoke()                ← actual tool dispatch through the registry
-    _post_execute(result)    ← placeholder: ErrorClassifier, RetryPolicy, output verification, etc.
-
-    The engine returns ExecutionResult — the runtime-layer envelope.
-    Tools themselves remain unaware of retries, timing, or verification;
-    they only return ToolResult (the tool-layer concern).
+    before_execute hooks  → _invoke() → after_execute hooks
+    Engine owns the retry loop; hooks own the retry decision.
     """
 
-    def __init__(self, runtime: Any):
+    def __init__(self, runtime: Any, hooks: list[ExecutionHook] | None = None):
         self.runtime = runtime
+        self.hooks = hooks or []
 
     async def execute(
         self,
@@ -33,25 +30,41 @@ class ExecutionEngine:
         session: Any,
         approval_manager: Any = None,
     ) -> ExecutionResult:
-        await self._pre_execute(name, params)
+        tool = self.runtime.tool_registry.get(name)
 
-        result = await self._invoke(name, params, cwd, session, approval_manager)
+        ctx = ExecutionContext(
+            tool_name=name,
+            tool=tool,
+            tool_kind=tool.kind if tool else None,
+            params=params,
+            cwd=cwd,
+            session=session,
+        )
 
-        await self._post_execute(result)
+        for hook in self.hooks:
+            await hook.before_execute(ctx)
+
+        result = None
+        while ctx.attempt <= ctx.max_attempts:
+            result = await self._invoke(name, params, cwd, session, approval_manager)
+
+            for hook in self.hooks:
+                result = await hook.after_execute(ctx, result)
+
+            if ctx.state.retry_requested:
+                ctx.state.retry_requested = False
+                ctx.state.verification = None
+                ctx.attempt += 1
+                continue
+
+            break
+
+        result.attempts = ctx.attempt
+        if ctx.state.verification:
+            result.verified = ctx.state.verification.passed
+        result.recovered = ctx.attempt > 1 and result.success
 
         return result
-
-
-    async def _pre_execute(self, name: str, params: dict) -> None:
-        """
-        Pre-execution hook.
-
-        Future integrations (add here when ready):
-          - VerificationEngine: validate params / schema before dispatch
-          - Rate-limit / quota guard
-          - Audit / tracing span start
-        """
-        pass  
 
     async def _invoke(
         self,
@@ -61,10 +74,6 @@ class ExecutionEngine:
         session: Any,
         approval_manager: Any,
     ) -> ExecutionResult:
-        """
-        Core dispatch: calls the tool registry and wraps the raw ToolResult
-        in an ExecutionResult with timing and bookkeeping metadata.
-        """
         t0 = time.perf_counter()
 
         tool_result: ToolResult = await self.runtime.tool_registry.invoke(
@@ -82,20 +91,7 @@ class ExecutionEngine:
             tool_name=name,
             duration_ms=round(duration_ms, 2),
             attempts=1,
-            # Placeholder fields — populated by future modules:
-            verified=None,       # VerificationEngine
-            classification=None, # ErrorClassifier
-            recovered=False,     # RetryPolicy
+            verified=None,
+            classification=None,
+            recovered=False,
         )
-
-    async def _post_execute(self, result: ExecutionResult) -> None:
-        """
-        Post-execution hook.
-
-        Future integrations (add here when ready):
-          - ErrorClassifier:    classify result.tool_result.error → result.classification
-          - RetryPolicy:        decide whether to retry and mutate result.attempts / result.recovered
-          - VerificationEngine: verify output correctness → result.verified
-          - Audit / tracing span end
-        """
-        pass  

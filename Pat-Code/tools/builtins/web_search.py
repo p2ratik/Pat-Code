@@ -17,6 +17,7 @@ class WebSearchTool(Tool):
     name = "web_search"
     description = "Search the web for information. Returns search results with titles, URLs and snippets"
     kind = Toolkind.NETWORK
+    requires_semantic_verification = True
     schema = WebSearchParams
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
