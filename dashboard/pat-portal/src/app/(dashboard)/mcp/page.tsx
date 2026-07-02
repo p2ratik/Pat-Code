@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { mcpApi, MCPServer, MCPServerCreate } from '@/lib/api/mcp';
 import {
-  Plus, X, Loader2, Plug, PlugZap, Link2Off, ChevronDown, ChevronRight, RefreshCw, KeyRound,
+  Plus, X, Loader2, Plug, PlugZap, Link2Off, ChevronDown, ChevronRight, RefreshCw, KeyRound, RotateCcw,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -21,6 +21,8 @@ function RegisterServerModal({ onClose }: { onClose: () => void }) {
     transport: 'stdio',
     startup_timeout_sec: 30,
     supports_oauth: false,
+    oauth_client_id: '',
+    oauth_client_secret: '',
     enabled: true,
   });
 
@@ -89,6 +91,24 @@ function RegisterServerModal({ onClose }: { onClose: () => void }) {
               className="rounded border-zinc-600 bg-zinc-800" />
             <label htmlFor="oauth" className="text-sm text-zinc-300">Supports OAuth</label>
           </div>
+
+          {form.supports_oauth && (
+            <div className="space-y-3 rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-4">
+              <p className="text-xs text-zinc-500">Required for providers like Google. Leave empty for Notion / Eraser.</p>
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1.5">OAuth Client ID</label>
+                <input value={form.oauth_client_id ?? ''} onChange={e => set('oauth_client_id', e.target.value || undefined)}
+                  placeholder="123456.apps.googleusercontent.com"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 placeholder-zinc-600" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1.5">OAuth Client Secret</label>
+                <input type="password" value={form.oauth_client_secret ?? ''} onChange={e => set('oauth_client_secret', e.target.value || undefined)}
+                  placeholder="GOCSPX-…"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 placeholder-zinc-600" />
+              </div>
+            </div>
+          )}
         </div>
 
         {mutation.isError && (
@@ -142,6 +162,14 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
     },
   });
 
+  const reconnectMutation = useMutation({
+    mutationFn: () => mcpApi.reconnectOAuth({
+      server_name: server.name,
+      frontend_redirect_url: window.location.origin + window.location.pathname,
+    }),
+    onSuccess: (data) => { window.location.href = data.authorization_url; },
+  });
+
   const oauthMutation = useMutation({
     mutationFn: () => mcpApi.startOAuth({
       server_name: server.name,
@@ -154,6 +182,7 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
 
   const status = connection?.status ?? 'not connected';
   const isConnected = status === 'connected';
+  const isExpired = status === 'expired';
 
   const statusColor: Record<string, string> = {
     connected: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
@@ -223,16 +252,22 @@ function ServerRow({ server, connection }: { server: MCPServer; connection: { st
               </button>
             )}
 
-            {/* OAuth token button — shown only for OAuth servers */}
             {server.supports_oauth && (
               <button
-                onClick={() => oauthMutation.mutate()}
-                disabled={oauthMutation.isPending}
-                className="flex items-center gap-1.5 text-xs border border-violet-700 text-violet-400 hover:border-violet-400 hover:text-violet-300 px-2.5 py-1 rounded transition-colors ml-2"
-                title="Authorize OAuth"
+                onClick={() => isExpired ? reconnectMutation.mutate() : oauthMutation.mutate()}
+                disabled={oauthMutation.isPending || reconnectMutation.isPending}
+                className={clsx(
+                  'flex items-center gap-1.5 text-xs border px-2.5 py-1 rounded transition-colors ml-2',
+                  isExpired
+                    ? 'border-amber-600 text-amber-400 hover:border-amber-400 hover:text-amber-300'
+                    : 'border-violet-700 text-violet-400 hover:border-violet-400 hover:text-violet-300'
+                )}
+                title={isExpired ? 'Re-authorize (token expired)' : 'Authorize OAuth'}
               >
-                {oauthMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
-                Authorize
+                {(oauthMutation.isPending || reconnectMutation.isPending)
+                  ? <Loader2 size={12} className="animate-spin" />
+                  : isExpired ? <RotateCcw size={12} /> : <KeyRound size={12} />}
+                {isExpired ? 'Re-auth' : 'Authorize'}
               </button>
             )}
 

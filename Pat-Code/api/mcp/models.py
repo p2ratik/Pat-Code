@@ -3,12 +3,14 @@ from pydantic import BaseModel, Field
 
 
 class MCPServerCreate(BaseModel):
-    name: str                          # Unique slug, e.g. "github"
-    display_name: str                  # Human label, e.g. "GitHub MCP"
-    server_url: str                    # URL or local path for the server
-    transport: str                     # "stdio" | "sse" | "http"
-    startup_timeout_sec: int = 30      # How long to wait before declaring failure
-    supports_oauth: bool = False       # Whether this server uses OAuth tokens
+    name: str
+    display_name: str
+    server_url: str
+    transport: str
+    startup_timeout_sec: int = 30
+    supports_oauth: bool = False
+    oauth_client_id: str | None = None
+    oauth_client_secret: str | None = None
     enabled: bool = True
 
 
@@ -20,6 +22,7 @@ class MCPServerResponse(BaseModel):
     transport: str
     startup_timeout_sec: int | None
     supports_oauth: bool | None
+    oauth_client_id: str | None = None
     enabled: bool
     created_at: str
 

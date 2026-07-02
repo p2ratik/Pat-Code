@@ -111,12 +111,22 @@ class CloudDatabase:
             except Exception as e:
                 logger.warning(f"Skipping subagent: {e}")
 
+        try:
+            from tools.integrations import get_all_integration_tools
+            for tool_cls in get_all_integration_tools():
+                try:
+                    tool_instance = tool_cls(dummy_config)
+                    tools_to_seed[tool_instance.name] = tool_instance.description or ""
+                except Exception as e:
+                    logger.warning(f"Skipping integration tool {tool_cls.__name__}: {e}")
+        except ImportError:
+            pass  # integration package not yet present — safe to skip
+
         if not tools_to_seed:
             logger.warning("No tools found to seed")
             return
 
         async with self.session_factory() as session:
-            # Check which tools already exist
             result = await session.execute(select(Tool.name))
             existing_names = {row[0] for row in result.all()}
 

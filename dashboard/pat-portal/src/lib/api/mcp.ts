@@ -8,6 +8,7 @@ export interface MCPServer {
   transport: string;
   startup_timeout_sec: number | null;
   supports_oauth: boolean | null;
+  oauth_client_id: string | null;
   enabled: boolean;
   created_at: string;
 }
@@ -19,6 +20,8 @@ export interface MCPServerCreate {
   transport: string;
   startup_timeout_sec?: number;
   supports_oauth?: boolean;
+  oauth_client_id?: string;
+  oauth_client_secret?: string;
   enabled?: boolean;
 }
 
@@ -124,6 +127,11 @@ export const mcpApi = {
 
   getOAuthTokenStatus: async (serverName: string): Promise<OAuthTokenStatus> => {
     const res = await apiClient.get<OAuthTokenStatus>(`/mcp/oauth/token-status/${serverName}`);
+    return res.data;
+  },
+
+  reconnectOAuth: async (data: OAuthStart): Promise<OAuthStartResponse> => {
+    const res = await apiClient.post<OAuthStartResponse>('/mcp/oauth/reconnect', data);
     return res.data;
   },
 };

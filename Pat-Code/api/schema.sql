@@ -189,9 +189,15 @@ CREATE TABLE mcp_servers (
     transport VARCHAR(50),
     startup_timeout_sec INTEGER,
     supports_oauth BOOLEAN,
+    oauth_client_id TEXT,
+    oauth_client_secret TEXT,
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Migration for existing databases:
+-- ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS oauth_client_id TEXT;
+-- ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS oauth_client_secret TEXT;
 
 -- ============================================================
 -- MCP_SERVER_SCOPES
@@ -267,6 +273,53 @@ CREATE TABLE audit_logs (
 );
 
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id, created_at);
+
+-- ============================================================
+-- INTEGRATION PLATFORM
+-- ============================================================
+CREATE TABLE integration_providers (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(100) UNIQUE NOT NULL,
+    display_name    VARCHAR(255) NOT NULL,
+    auth_type       VARCHAR(50) NOT NULL DEFAULT 'oauth2',
+    client_id       TEXT,
+    client_secret   TEXT,
+    auth_url        TEXT,
+    token_url       TEXT,
+    revoke_url      TEXT,
+    max_scopes      JSONB,
+    icon_url        TEXT,
+    enabled         BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE integration_user_connections (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
+    provider_id     UUID REFERENCES integration_providers(id) ON DELETE CASCADE,
+    status          VARCHAR(50) NOT NULL DEFAULT 'disconnected',
+    connected_at    TIMESTAMP,
+    last_used_at    TIMESTAMP,
+    UNIQUE(user_id, provider_id)
+);
+
+CREATE TABLE integration_credentials (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connection_id           UUID REFERENCES integration_user_connections(id) ON DELETE CASCADE,
+    encrypted_access_token  TEXT,
+    encrypted_refresh_token TEXT,
+    token_type              VARCHAR(50) DEFAULT 'Bearer',
+    scopes_granted          JSONB,
+    expires_at              TIMESTAMP,
+    last_refresh_at         TIMESTAMP,
+    provider_user_email     TEXT,
+    created_at              TIMESTAMP DEFAULT NOW(),
+    updated_at              TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_intg_connections_user ON integration_user_connections(user_id);
+CREATE INDEX idx_intg_credentials_conn ON integration_credentials(connection_id);
 
 -- ============================================================
 -- SEED DATA

@@ -8,6 +8,11 @@ MCP API routes.
   GET  /mcp/status               → list current user's connection statuses
   POST /mcp/servers/{name}/sync  → upsert tool cache for a server (admin only)
   GET  /mcp/servers/{name}/tools → read cached tools for a server
+  POST /mcp/oauth/start          → begin browser OAuth flow; returns authorization_url
+  GET  /mcp/oauth/callback       → OAuth redirect (browser); exchanges code and stores tokens
+  POST /mcp/oauth/callback       → direct token deposit (frontend-completed flow)
+  POST /mcp/oauth/reconnect      → re-trigger OAuth for a server whose token has expired
+  GET  /mcp/oauth/token-status   → check token expiry metadata
 """
 import logging
 import os
@@ -66,6 +71,8 @@ async def register_server(
             transport=body.transport,
             startup_timeout_sec=body.startup_timeout_sec,
             supports_oauth=body.supports_oauth,
+            oauth_client_id=body.oauth_client_id,
+            oauth_client_secret=body.oauth_client_secret,
             enabled=body.enabled,
         )
     except Exception as e:
@@ -243,7 +250,9 @@ async def oauth_browser_callback(
     raw_flow = await request.app.state.redis.get(f"mcp_oauth_state:{state}")
     if not raw_flow:
         raise HTTPException(status_code=400, detail="OAuth state expired or invalid")
-    await request.app.state.redis.delete(f"mcp_oauth_state:{state}")
+    # NOTE: do NOT delete state here — preserve it so the user can retry on
+    # transient failures (network error during token exchange, etc.).
+    # State is deleted after store_oauth_tokens succeeds (below).
 
     flow = loads_flow(raw_flow)
     frontend_redirect_url = flow.get("frontend_redirect_url")
@@ -260,6 +269,19 @@ async def oauth_browser_callback(
         if token_payload.get("expires_in") is not None:
             expires_at = datetime.utcnow() + timedelta(seconds=int(token_payload["expires_in"]))
 
+        # Build the DCR client info snapshot so _try_refresh_token can use the
+        # correct client_id / client_secret for subsequent refresh_token grants.
+        # client_info holds the dynamic client registration response (client_id,
+        # client_secret, token_endpoint_auth_method, etc.).
+        dcr_client_info: dict | None = None
+        raw_client_info = flow.get("client_info")
+        if raw_client_info:
+            dcr_client_info = {
+                **raw_client_info,
+                # Also capture the token endpoint so refresh skips live discovery.
+                "token_endpoint": flow.get("token_endpoint"),
+            }
+
         await request.app.state.mcp_service.store_oauth_tokens(
             user_id=flow["user_id"],
             server_name=flow["server_name"],
@@ -268,9 +290,14 @@ async def oauth_browser_callback(
             token_type=token_payload.get("token_type", "Bearer"),
             expires_at=expires_at,
             provider_user_id=token_payload.get("provider_user_id"),
+            dcr_client_info=dcr_client_info,
         )
     except Exception as e:
+        # Do NOT delete state here so the user can retry if this was transient.
         return _oauth_redirect(frontend_redirect_url, error=str(e))
+
+    # State successfully consumed — delete now.
+    await request.app.state.redis.delete(f"mcp_oauth_state:{state}")
 
     # Auto-discover tools using the fresh access token so they appear immediately.
     # Non-fatal: a failed sync never blocks the successful auth redirect.
@@ -339,6 +366,58 @@ async def oauth_token_status(
         raise HTTPException(status_code=404, detail=str(e))
 
     return OAuthTokenStatusResponse(server_name=server_name, **status)
+
+
+@router.post("/oauth/reconnect", response_model=OAuthStartResponse)
+async def oauth_reconnect(
+    body: OAuthStartRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Re-start the OAuth flow for a server whose token has expired.
+
+    Equivalent to /mcp/oauth/start but first clears the 'expired' (or
+    'connected') status so a stale credential doesn't block re-auth.
+    The frontend should redirect the user to the returned authorization_url.
+    """
+    mcp_service = request.app.state.mcp_service
+    try:
+        server = await mcp_service.get_server(body.server_name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if not server.get("supports_oauth"):
+        raise HTTPException(status_code=400, detail="MCP server does not support OAuth")
+
+    # Reset expired/stale status so the connection is clean for the new flow.
+    try:
+        conn_list = await mcp_service.get_user_connections(current_user["id"])
+        for c in conn_list:
+            if c["server_name"] == body.server_name and c["status"] in ("expired", "connected"):
+                await mcp_service.disconnect_for_user(current_user["id"], body.server_name)
+                break
+    except Exception:
+        pass  # Non-fatal — worst case the new tokens overwrite the old ones.
+
+    callback_url = str(request.url_for("oauth_browser_callback"))
+    try:
+        flow = await build_authorization_flow(server["server_url"], callback_url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OAuth discovery failed: {e}")
+
+    flow.update({
+        "user_id": current_user["id"],
+        "server_name": body.server_name,
+        "frontend_redirect_url": body.frontend_redirect_url,
+    })
+    await request.app.state.redis.setex(
+        f"mcp_oauth_state:{flow['state']}",
+        600,
+        dumps_flow(flow),
+    )
+    return OAuthStartResponse(
+        server_name=body.server_name,
+        authorization_url=flow["authorization_url"],
+    )
 
 
 def _oauth_redirect(frontend_redirect_url: str | None, **params: str) -> RedirectResponse:

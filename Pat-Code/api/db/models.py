@@ -198,6 +198,8 @@ class MCPServer(Base):
     transport = Column(String(50))
     startup_timeout_sec = Column(Integer)
     supports_oauth = Column(Boolean)
+    oauth_client_id = Column(Text, nullable=True)
+    oauth_client_secret = Column(Text, nullable=True)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -240,6 +242,12 @@ class MCPCredential(Base):
     token_type = Column(String(50))
     expires_at = Column(DateTime)
     last_refresh_at = Column(DateTime)
+    # Stores the Dynamic Client Registration (DCR) output: client_id, client_secret,
+    # token_endpoint_auth_method, and token_endpoint URL.  Required for providers
+    # like Notion where the refresh_token grant must use the same DCR-issued
+    # client_id/secret that was used during the authorization_code exchange.
+    # Null for servers that use a static oauth_client_id from mcp_servers instead.
+    dcr_client_info = Column(JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -289,3 +297,62 @@ class MCPTool(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     server = relationship("MCPServer", back_populates="mcp_tools")
+
+
+# ============================================================
+# INTEGRATION PLATFORM
+# ============================================================
+
+class IntegrationProvider(Base):
+    __tablename__ = "integration_providers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False)
+    display_name = Column(String(255), nullable=False)
+    auth_type = Column(String(50), nullable=False, default="oauth2")
+    client_id = Column(Text, nullable=True)
+    client_secret = Column(Text, nullable=True)
+    auth_url = Column(Text, nullable=True)
+    token_url = Column(Text, nullable=True)
+    revoke_url = Column(Text, nullable=True)
+    max_scopes = Column(JSONB, nullable=True)
+    icon_url = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    connections = relationship("IntegrationUserConnection", back_populates="provider", cascade="all, delete-orphan")
+
+
+class IntegrationUserConnection(Base):
+    __tablename__ = "integration_user_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    provider_id = Column(UUID(as_uuid=True), ForeignKey("integration_providers.id", ondelete="CASCADE"))
+    status = Column(String(50), nullable=False, default="disconnected")
+    connected_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("user_id", "provider_id"),)
+
+    provider = relationship("IntegrationProvider", back_populates="connections")
+    credentials = relationship("IntegrationCredential", back_populates="connection", uselist=False, cascade="all, delete-orphan")
+
+
+class IntegrationCredential(Base):
+    __tablename__ = "integration_credentials"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id = Column(UUID(as_uuid=True), ForeignKey("integration_user_connections.id", ondelete="CASCADE"))
+    encrypted_access_token = Column(Text, nullable=True)
+    encrypted_refresh_token = Column(Text, nullable=True)
+    token_type = Column(String(50), default="Bearer")
+    scopes_granted = Column(JSONB, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    last_refresh_at = Column(DateTime, nullable=True)
+    provider_user_email = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    connection = relationship("IntegrationUserConnection", back_populates="credentials")
