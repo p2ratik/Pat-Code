@@ -1,3 +1,2 @@
-from api.integrations.encryption import encrypt_token, decrypt_token
-
-__all__ = ["encrypt_token", "decrypt_token"]
+# Integration platform package.
+# Submodules import what they need directly (e.g. from api.integrations.encryption import ...).

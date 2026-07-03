@@ -163,9 +163,6 @@ class ProfileCache:
         await self.redis.delete(self._tools_key(profile_id))
         logger.info("ProfileCache tools key invalidated: profile_id=%s", profile_id)
 
-    # ------------------------------------------------------------------
-    # Single-query DB fetch
-    # ------------------------------------------------------------------
 
     async def _fetch_from_db(self, user_id: str) -> ProfileConfig:
         """Fetch profile config in one SQL round-trip.

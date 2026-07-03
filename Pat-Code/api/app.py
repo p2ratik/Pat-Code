@@ -19,6 +19,11 @@ from api.pat_service import PATService
 from api.routes import users, chat, profiles, tools, prompts
 from api.routes import mcp as mcp_routes
 from api.routes import conversations
+from api.integrations.service import IntegrationService
+from api.integrations.credential_manager import CredentialManager
+from api.integrations.connection_manager import ConnectionManager
+from api.integrations.routes import router as integrations_router
+from api.integrations.providers import get_all_providers
 from config.config import Config, ModelConfig, ApprovalPolicy
 from tools.registry import create_default_registry
 
@@ -55,6 +60,14 @@ async def lifespan(app: FastAPI):
     app.state.profile_cache = profile_cache
     app.state.conversation_context_repo = conversation_context_repo
     app.state.mcp_service = CloudMCPService(db)
+
+    # Integration platform — managers share the same provider registry instance.
+    providers = get_all_providers()
+    credential_manager = CredentialManager(db=db, redis=redis, providers=providers)
+    connection_manager = ConnectionManager(db=db, redis=redis, credential_manager=credential_manager, providers=providers)
+    app.state.integration_service = IntegrationService(db=db)
+    app.state.credential_manager = credential_manager
+    app.state.connection_manager = connection_manager
 
     # Build the base tool registry ONCE at startup.
     # Per-request runtimes filter this instead of re-scanning builtins.
@@ -113,6 +126,7 @@ app.include_router(tools.router, prefix="/tools")
 app.include_router(prompts.router, prefix="/prompts")
 app.include_router(mcp_routes.router, prefix="/mcp")
 app.include_router(conversations.router, prefix="/conversations")
+app.include_router(integrations_router, prefix="/integrations")
 
 
 @app.get("/health", tags=["health"])
