@@ -8,7 +8,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from api.db.database import CloudDatabase
-from api.db.models import IntegrationProvider, IntegrationUserConnection
+from api.db.models import IntegrationProvider, IntegrationUserConnection, IntegrationCredential
 from api.integrations.credential_manager import CredentialManager
 from api.integrations.encryption import decrypt_token
 from api.integrations.exceptions import AuthorizationRequiredError, ProviderNotEnabledError
@@ -138,10 +138,15 @@ class ConnectionManager:
             if not conn:
                 return {"provider": provider_name, "status": "disconnected"}
 
-            if conn.credentials and conn.credentials.encrypted_access_token:
+            # Explicit credential query — avoids lazy-load greenlet error in async sessions.
+            cred_result = await session.execute(
+                select(IntegrationCredential).where(IntegrationCredential.connection_id == conn.id)
+            )
+            cred = cred_result.scalar_one_or_none()
+
+            if cred and cred.encrypted_access_token:
                 try:
-                    from api.integrations.encryption import decrypt_token as _d
-                    access_token = _d(conn.credentials.encrypted_access_token)
+                    access_token = decrypt_token(cred.encrypted_access_token)
                     client_id = decrypt_token(provider_row.client_id) if provider_row.client_id else ""
                     client_secret = decrypt_token(provider_row.client_secret) if provider_row.client_secret else ""
                     await provider_obj.revoke_token(access_token, client_id, client_secret)
