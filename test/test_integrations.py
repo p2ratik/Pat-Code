@@ -60,12 +60,17 @@ def credential_manager(mock_db, mock_redis, providers_dict):
     return CredentialManager(db=mock_db, redis=mock_redis, providers=providers_dict)
 
 @pytest.fixture
-def connection_manager(mock_db, mock_redis, credential_manager, providers_dict):
+def mock_profile_cache():
+    return AsyncMock()
+
+@pytest.fixture
+def connection_manager(mock_db, mock_redis, credential_manager, providers_dict, mock_profile_cache):
     return ConnectionManager(
         db=mock_db,
         redis=mock_redis,
         credential_manager=credential_manager,
-        providers=providers_dict
+        providers=providers_dict,
+        profile_cache=mock_profile_cache
     )
 
 # --- ConnectionManager Tests ---
@@ -142,28 +147,36 @@ async def test_handle_callback(connection_manager, mock_db, mock_redis, mock_pro
 @pytest.mark.asyncio
 async def test_disconnect(connection_manager, mock_db, mock_redis, mock_provider, credential_manager):
     user_id = str(uuid.uuid4())
-    
+
     provider_row = MagicMock()
     provider_row.id = uuid.uuid4()
     provider_row.client_id = encrypt_token("client_id")
     provider_row.client_secret = encrypt_token("client_secret")
-    
+
     conn_row = MagicMock()
-    conn_row.credentials.encrypted_access_token = encrypt_token("access")
-    
+    conn_row.id = uuid.uuid4()
+
+    # disconnect() does an explicit credential query (avoids async lazy-load).
+    # scalar_one_or_none is called 3 times across the two get_session() contexts:
+    #   1. _get_provider_row  → provider_row
+    #   2. select(IntegrationUserConnection) → conn_row
+    #   3. select(IntegrationCredential)     → cred_row
+    cred_row = MagicMock()
+    cred_row.encrypted_access_token = encrypt_token("access")
+
     mock_session = mock_db.get_session.return_value
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.side_effect = [provider_row, conn_row]
+    mock_result.scalar_one_or_none.side_effect = [provider_row, conn_row, cred_row]
     mock_session.execute.return_value = mock_result
-    
+
     credential_manager.invalidate_cache = AsyncMock()
 
     res = await connection_manager.disconnect(user_id, "test_provider")
-    
+
     assert res["status"] == "disconnected"
     assert conn_row.status == "disconnected"
     assert conn_row.connected_at is None
-    
+
     mock_provider.revoke_token.assert_called_once()
     credential_manager.invalidate_cache.assert_called_once_with(user_id, "test_provider")
 
@@ -288,3 +301,128 @@ async def test_get_client_missing_scopes(credential_manager, mock_db):
         await credential_manager.get_client(provider, user_id, ["read", "write"])
         
     assert "write" in exc.value.missing_scopes
+
+# --- Phase B & C Flow Tests ---
+
+@pytest.mark.asyncio
+async def test_scopes_for_tools(connection_manager):
+    provider_row = MagicMock()
+    provider_row.max_scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    
+    # 1. Specific tool should request only its minimal scopes
+    scopes = connection_manager._scopes_for_tools(["read_google_sheet"], provider_row)
+    assert set(scopes) == {"https://www.googleapis.com/auth/spreadsheets.readonly"}
+    
+    # 2. Multiple tools should union their scopes
+    scopes_both = connection_manager._scopes_for_tools(["read_google_sheet", "append_google_sheet_rows"], provider_row)
+    assert set(scopes_both) == {
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/spreadsheets.readonly"
+    }
+    
+    # 3. Empty requested tools falls back to max_scopes ceiling
+    scopes_fallback = connection_manager._scopes_for_tools([], provider_row)
+    assert set(scopes_fallback) == set(provider_row.max_scopes)
+
+@pytest.mark.asyncio
+async def test_handle_callback_auto_assign(connection_manager, mock_db, mock_redis, mock_provider, credential_manager, mock_profile_cache):
+    user_id = str(uuid.uuid4())
+    state = "test_state"
+    
+    # Mock Redis state with requested_tools
+    mock_redis.get.return_value = json.dumps({
+        "user_id": user_id,
+        "provider": "test_provider",
+        "redirect_uri": "http://redirect",
+        "requested_tools": ["read_google_sheet"]
+    })
+    
+    provider_row = MagicMock()
+    provider_row.id = uuid.uuid4()
+    provider_row.client_id = encrypt_token("client_id")
+    provider_row.client_secret = encrypt_token("client_secret")
+    
+    mock_session = mock_db.get_session.return_value
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = provider_row
+    mock_session.execute.return_value = mock_result
+    
+    conn_row = MagicMock()
+    conn_row.id = uuid.uuid4()
+    mock_result.scalar_one_or_none.side_effect = [provider_row, conn_row]
+
+    connection_manager._fetch_provider_email = AsyncMock(return_value="test@test.com")
+    credential_manager.store_tokens = AsyncMock()
+    
+    # Mock auto-assignment
+    connection_manager._assign_tools_to_profile = AsyncMock(return_value=["read_google_sheet"])
+
+    res = await connection_manager.handle_callback("auth_code", state, "http://redirect")
+    
+    assert "tools_assigned" in res
+    assert res["tools_assigned"] == ["read_google_sheet"]
+    
+    # Verify auto-assign and cache invalidation were called
+    connection_manager._assign_tools_to_profile.assert_called_once_with(user_id, ["read_google_sheet"])
+    mock_profile_cache.invalidate_user.assert_called_once_with(user_id)
+
+@pytest.mark.asyncio
+async def test_initiate_scope_upgrade_no_missing(connection_manager, mock_db, mock_profile_cache):
+    user_id = str(uuid.uuid4())
+    
+    provider_row = MagicMock(enabled=True)
+    connection_manager._get_provider_row = AsyncMock(return_value=provider_row)
+    
+    # User already has spreadsheets scope
+    connection_manager._get_granted_scopes = AsyncMock(return_value=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    
+    connection_manager._assign_tools_to_profile = AsyncMock(return_value=["read_google_sheet"])
+    
+    # read_google_sheet requires spreadsheets.readonly — missing is empty
+    res = await connection_manager.initiate_scope_upgrade(
+        user_id, "google", ["read_google_sheet"], "http://redirect"
+    )
+    
+    assert res["upgraded"] is True
+    assert res["tools_assigned"] == ["read_google_sheet"]
+    assert res["missing_scopes"] == []
+    
+    # Auth URL shouldn't be built
+    assert "authorization_url" not in res
+    mock_profile_cache.invalidate_user.assert_called_once_with(user_id)
+
+@pytest.mark.asyncio
+async def test_initiate_scope_upgrade_with_missing(connection_manager, mock_db, mock_redis, mock_provider):
+    user_id = str(uuid.uuid4())
+    
+    provider_row = MagicMock(enabled=True)
+    provider_row.client_id = encrypt_token("client_id")
+    connection_manager._get_provider_row = AsyncMock(return_value=provider_row)
+    
+    # User has readonly, but wants append_google_sheet_rows (requires write)
+    connection_manager._get_granted_scopes = AsyncMock(return_value=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    
+    # Wire the google provider into connection_manager to intercept build_auth_url
+    mock_provider.name = "google"
+    mock_provider.build_auth_url.return_value = "https://auth.url/incremental"
+    connection_manager.providers = {"google": mock_provider}
+    
+    res = await connection_manager.initiate_scope_upgrade(
+        user_id, "google", ["append_google_sheet_rows"], "http://redirect"
+    )
+    
+    assert res["upgraded"] is False
+    assert res["authorization_url"] == "https://auth.url/incremental"
+    assert "https://www.googleapis.com/auth/spreadsheets" in res["missing_scopes"]
+    
+    # Ensure include_granted_scopes was passed
+    mock_provider.build_auth_url.assert_called_once()
+    kwargs = mock_provider.build_auth_url.call_args[1]
+    assert kwargs.get("include_granted_scopes") is True
+    
+    # Verify state was saved to Redis
+    mock_redis.setex.assert_called_once()

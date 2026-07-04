@@ -64,7 +64,13 @@ async def lifespan(app: FastAPI):
     # Integration platform — managers share the same provider registry instance.
     providers = get_all_providers()
     credential_manager = CredentialManager(db=db, redis=redis, providers=providers)
-    connection_manager = ConnectionManager(db=db, redis=redis, credential_manager=credential_manager, providers=providers)
+    connection_manager = ConnectionManager(
+        db=db,
+        redis=redis,
+        credential_manager=credential_manager,
+        providers=providers,
+        profile_cache=profile_cache,
+    )
     app.state.integration_service = IntegrationService(db=db)
     app.state.credential_manager = credential_manager
     app.state.connection_manager = connection_manager
@@ -86,6 +92,7 @@ async def lifespan(app: FastAPI):
         profile_cache=profile_cache,
         base_tool_registry=app.state.base_tool_registry,
         mcp_service=app.state.mcp_service,
+        credential_manager=credential_manager,
     )
 
     logger.info("PAT API started")

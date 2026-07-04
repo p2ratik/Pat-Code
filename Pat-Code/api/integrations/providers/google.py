@@ -19,8 +19,13 @@ class GoogleProvider(BaseProvider):
         redirect_uri: str,
         scopes: list[str],
         state: str,
+        include_granted_scopes: bool = False,
     ) -> str:
-        """Constructs the Google OAuth2 consent URL with offline access for refresh tokens."""
+        """Constructs the Google OAuth2 consent URL with offline access for refresh tokens.
+
+        Set include_granted_scopes=True for incremental authorization — merges new scopes
+        with the ones already granted without creating a new connection or refresh token.
+        """
         params = {
             "response_type": "code",
             "client_id": client_id,
@@ -30,6 +35,8 @@ class GoogleProvider(BaseProvider):
             "access_type": "offline",
             "prompt": "consent",
         }
+        if include_granted_scopes:
+            params["include_granted_scopes"] = "true"
         return f"{self._AUTH_URL}?{urlencode(params)}"
 
     async def build_client(self, access_token: str) -> httpx.AsyncClient:

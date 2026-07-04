@@ -1,9 +1,11 @@
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from tools.integrations.base import OAuthTool
+"""Integration tool discovery — returns all OAuthTool subclasses for seeding and runtime injection."""
+from tools.integrations.google.read_sheet import ReadGoogleSheetTool
+from tools.integrations.google.append_rows import AppendGoogleSheetRowsTool
 
 
 def get_all_integration_tools() -> list[type]:
-    """Return all registered OAuthTool subclasses for seeding and runtime injection."""
-    return []
+    """Return every registered OAuthTool class."""
+    return [
+        ReadGoogleSheetTool,
+        AppendGoogleSheetRowsTool,
+    ]

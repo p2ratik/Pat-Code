@@ -26,14 +26,14 @@ class PATService:
         profile_cache: ProfileCache,
         base_tool_registry=None,
         mcp_service=None,
-        # Phase 4: event_bus: EventBus | None = None,
-        # Phase 5: qdrant: AsyncQdrantClient | None = None,
+        credential_manager=None,
     ):
         self.db = db
         self.conversation_context_repo = conversation_context_repo
         self.profile_cache = profile_cache
         self.base_tool_registry = base_tool_registry
         self.mcp_service = mcp_service
+        self.credential_manager = credential_manager
 
     async def chat(self, user_id: str, message: str, conversation_id: str | None = None) -> dict:
         # One cached DB round-trip: profile + prompt + tools
@@ -59,7 +59,12 @@ class PATService:
             final_response = ""
             events: list[AgentEvent] = []
 
-            async with Agent(config, runtime=CloudAgentRuntime.build(config, base_registry=self.base_tool_registry)) as agent:
+            async with Agent(config, runtime=CloudAgentRuntime.build(
+            config,
+            base_registry=self.base_tool_registry,
+            user_id=user_id,
+            credential_manager=self.credential_manager,
+        )) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 
                 pre_run_summary = agent.runtime.context_manager._compacted_summary

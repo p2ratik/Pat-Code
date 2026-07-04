@@ -42,6 +42,8 @@ class IntegrationConnectionResponse(BaseModel):
 class OAuthInitiateRequest(BaseModel):
     provider_name: str
     redirect_uri: str
+    # Tools being connected in this OAuth flow; scopes are the union of their required_scopes.
+    requested_tools: list[str] = []
 
 class OAuthInitiateResponse(BaseModel):
     authorization_url: str
@@ -57,3 +59,22 @@ class OAuthCallbackResponse(BaseModel):
     status: str
     email: str | None
     scopes: list[str] | None
+    # Tool names that were assigned to the user's profile after this OAuth flow.
+    tools_assigned: list[str] = []
+
+
+class ScopeUpgradeRequest(BaseModel):
+    provider_name: str
+    redirect_uri: str
+    # Tools whose required_scopes may exceed what the user currently has granted.
+    requested_tools: list[str]
+
+
+class ScopeUpgradeResponse(BaseModel):
+    # True when no new OAuth round-trip was needed (scopes already sufficient).
+    upgraded: bool
+    # Present only when upgraded=False — frontend should redirect the user here.
+    authorization_url: str | None = None
+    state: str | None = None
+    tools_assigned: list[str] = []
+    missing_scopes: list[str] = []

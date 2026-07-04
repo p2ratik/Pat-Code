@@ -16,6 +16,7 @@ class Toolkind(str, Enum):
     NETWORK = "network"
     MEMORY = "memory"
     MCP = "mcp"
+    INTEGRATION = "integration"
 
 @dataclass
 class FileDiff:

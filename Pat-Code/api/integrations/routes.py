@@ -9,6 +9,8 @@ from api.integrations.models import (
     OAuthInitiateResponse,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
+    ScopeUpgradeRequest,
+    ScopeUpgradeResponse,
 )
 
 router = APIRouter(tags=["integrations"])
@@ -74,7 +76,12 @@ async def initiate_oauth(
 ):
     conn_mgr = request.app.state.connection_manager
     try:
-        return await conn_mgr.initiate_oauth(current_user["id"], body.provider_name, body.redirect_uri)
+        return await conn_mgr.initiate_oauth(
+            current_user["id"],
+            body.provider_name,
+            body.redirect_uri,
+            requested_tools=body.requested_tools,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -88,6 +95,29 @@ async def oauth_callback(
     conn_mgr = request.app.state.connection_manager
     try:
         return await conn_mgr.handle_callback(body.code, body.state, body.redirect_uri)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/oauth/upgrade", response_model=ScopeUpgradeResponse)
+async def upgrade_scopes(
+    body: ScopeUpgradeRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Enable additional tools that need scopes beyond what the user has already granted.
+
+    If all required scopes are already granted, tools are assigned immediately (upgraded=True).
+    Otherwise returns an authorization_url for incremental OAuth — same Google account,
+    same connection, just new scopes merged in.
+    """
+    conn_mgr = request.app.state.connection_manager
+    try:
+        return await conn_mgr.initiate_scope_upgrade(
+            user_id=current_user["id"],
+            provider_name=body.provider_name,
+            requested_tools=body.requested_tools,
+            redirect_uri=body.redirect_uri,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

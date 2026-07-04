@@ -59,6 +59,8 @@ class ToolRegistryView:
         self.config = config
         # Populated by CloudAgentRuntime.initialize() after MCP connects.
         self._mcp_tools: dict[str, Tool] = {}
+        # Populated by CloudAgentRuntime.initialize() for connected OAuth providers.
+        self._integration_tools: dict[str, Tool] = {}
 
     def get_tools(self) -> list[Tool]:
         # Builtins filtered by the profile's allowed_tools list.
@@ -66,23 +68,24 @@ class ToolRegistryView:
         if self.config.allowed_tools is not None:
             allowed = set(self.config.allowed_tools)
             builtins = [t for t in builtins if t.name in allowed]
-        # MCP tools always exposed — explicit connection is authorization.
-        return builtins + list(self._mcp_tools.values())
+        # MCP and integration tools always exposed — explicit connection is authorization.
+        return builtins + list(self._mcp_tools.values()) + list(self._integration_tools.values())
 
     def get_schemas(self):
         return [t.to_openai_schema() for t in self.get_tools()]
 
     def get(self, name: str) -> Tool | None:
-        # MCP tools take precedence and bypass the allowlist.
+        # MCP and integration tools bypass the allowlist — connection is authorization.
         if name in self._mcp_tools:
             return self._mcp_tools[name]
+        if name in self._integration_tools:
+            return self._integration_tools[name]
         if self.config.allowed_tools is not None and name not in set(self.config.allowed_tools):
             return None
         return self._base.get(name)
 
     async def invoke(self, name: str, params: dict, cwd: Path, session, approval_manager=None) -> ToolResult:
-        # MCP tools: dispatch directly — they live in self._mcp_tools,
-        # NOT in self._base._mcp_tools (which is always empty in cloud mode).
+        # MCP tools: dispatch directly — they live in self._mcp_tools.
         if name in self._mcp_tools:
             tool = self._mcp_tools[name]
             invocation = ToolInvocation(params=params, cwd=cwd, session=session)
@@ -91,6 +94,18 @@ class ToolRegistryView:
             except Exception as exc:
                 return ToolResult.error_result(
                     error=f"MCP tool '{name}' raised an error: {exc}",
+                    metadata={"tool_name": name},
+                )
+
+        # Integration tools: dispatch directly — connection is authorization.
+        if name in self._integration_tools:
+            tool = self._integration_tools[name]
+            invocation = ToolInvocation(params=params, cwd=cwd, session=session)
+            try:
+                return await tool.execute(invocation)
+            except Exception as exc:
+                return ToolResult.error_result(
+                    error=f"Integration tool '{name}' raised an error: {exc}",
                     metadata={"tool_name": name},
                 )
 
@@ -121,6 +136,8 @@ class CloudAgentRuntime:
         approval_manager: ApprovalManager,
         db_manager=None,
         mcp_manager: MCPManager | None = None,
+        user_id: str | None = None,
+        credential_manager=None,
     ):
         self.config = config
         self.client = client
@@ -130,6 +147,9 @@ class CloudAgentRuntime:
         self.approval_manager = approval_manager
         self.db_manager = db_manager or NoOpDBManager()
         self._mcp_manager = mcp_manager
+        # Set by PATService.chat() so OAuthTool.execute() can read them via invocation.session.
+        self.user_id = user_id
+        self.credential_manager = credential_manager
 
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
@@ -139,12 +159,12 @@ class CloudAgentRuntime:
     # Factory
     # ------------------------------------------------------------------
     @classmethod
-    def build(cls, config: Config, base_registry=None) -> "CloudAgentRuntime":
+    def build(cls, config: Config, base_registry=None, user_id: str | None = None, credential_manager=None) -> "CloudAgentRuntime":
         """Build a CloudAgentRuntime from a Config.
 
         base_registry: the application-wide ToolRegistry singleton built at
           startup. Reused via ToolRegistryView — no builtin re-scan per request.
-          MCP tools are added per-request inside initialize().
+          MCP and integration tools are added per-request inside initialize().
         """
         client = LLMClient(config)
 
@@ -178,6 +198,8 @@ class CloudAgentRuntime:
             chat_compactor=chat_compactor,
             approval_manager=approval_manager,
             mcp_manager=mcp_manager,
+            user_id=user_id,
+            credential_manager=credential_manager,
         )
         runtime.execution_engine = ExecutionEngine(
             runtime=runtime,
@@ -190,6 +212,7 @@ class CloudAgentRuntime:
         )
         return runtime
 
+
     # ------------------------------------------------------------------
     # AgentRuntime protocol
     # ------------------------------------------------------------------
@@ -198,32 +221,51 @@ class CloudAgentRuntime:
         return self._turn_count
 
     async def initialize(self) -> None:
-        """Connect MCP servers, register their tools, and rebuild the system prompt.
+        """Connect MCP servers + integration tools, register them, and rebuild the system prompt.
 
         Called by Agent.__aenter__() before the agentic loop starts.
         The system prompt must be rebuilt here because ContextManager.__init__
-        bakes it from the tool list — MCP tools aren't available yet at build time.
+        bakes it from the tool list — dynamic tools aren't available yet at build time.
         """
-        if not self._mcp_manager:
-            return
+        if self._mcp_manager:
+            await self._mcp_manager.initialize()
 
-        await self._mcp_manager.initialize()
+            # Inject connected MCP tools into the per-request view.
+            if isinstance(self.tool_registry, ToolRegistryView):
+                for client in self._mcp_manager._clients.values():
+                    if client.status != MCPServerStatus.CONNECTED:
+                        continue
+                    for tool_info in client.tools:
+                        mcp_tool = MCPTool(
+                            tool_info=tool_info,
+                            client=client,
+                            config=self.config,
+                            name=f"{client.name}__{tool_info.name}",
+                        )
+                        self.tool_registry._mcp_tools[mcp_tool.name] = mcp_tool
 
-        # Inject connected MCP tools into the per-request view.
-        if isinstance(self.tool_registry, ToolRegistryView):
-            for client in self._mcp_manager._clients.values():
-                if client.status != MCPServerStatus.CONNECTED:
-                    continue
-                for tool_info in client.tools:
-                    mcp_tool = MCPTool(
-                        tool_info=tool_info,
-                        client=client,
-                        config=self.config,
-                        name=f"{client.name}__{tool_info.name}",
-                    )
-                    self.tool_registry._mcp_tools[mcp_tool.name] = mcp_tool
+        # Inject integration tools — gated by OAuth connection AND agent profile.
+        if self.user_id and self.credential_manager and isinstance(self.tool_registry, ToolRegistryView):
+            from tools.integrations import get_all_integration_tools
+            try:
+                connected = await self.credential_manager.get_connected_providers(self.user_id)
+                connected_set = set(connected)
+                # O(1) membership test; None means admin — no restriction.
+                allowed_set = (
+                    set(self.config.allowed_tools)
+                    if self.config.allowed_tools is not None
+                    else None
+                )
+                for tool_cls in get_all_integration_tools():
+                    instance = tool_cls(self.config)
+                    in_connected = instance.provider_name in connected_set
+                    in_profile = allowed_set is None or instance.name in allowed_set
+                    if in_connected and in_profile:
+                        self.tool_registry._integration_tools[instance.name] = instance
+            except Exception:
+                pass  # Integration tools are best-effort; never block the agent
 
-        # Rebuild the system prompt so the LLM sees MCP tool names.
+        # Rebuild the system prompt so the LLM sees all tool names (MCP + integration).
         # Skip this if a profile override was set — it takes precedence.
         if not self.config.system_prompt_override:
             self.context_manager._system_prompt = get_system_prompt(
