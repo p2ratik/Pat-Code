@@ -64,6 +64,7 @@ class PATService:
             base_registry=self.base_tool_registry,
             user_id=user_id,
             credential_manager=self.credential_manager,
+            connected_providers=profile_config.connected_providers,
         )) as agent:
                 await self._rehydrate_context(agent, conversation_id)
 

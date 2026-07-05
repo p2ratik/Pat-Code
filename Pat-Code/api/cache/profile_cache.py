@@ -41,16 +41,15 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from api.db.database import CloudDatabase
+from api.cache.ttls import TTL_PROFILE
 
 logger = logging.getLogger(__name__)
 
-# Admin roles that bypass tool filtering — mirrors auth/service.py
 ADMIN_ROLES = {"super_admin", "admin"}
 
-# Cache TTLs
-PROFILE_TTL_SECONDS = 5 * 60       # 5 minutes
-PROMPT_TTL_SECONDS  = 60 * 60      # 1 hour
-TOOLS_TTL_SECONDS   = 60 * 60      # 1 hour
+PROFILE_TTL_SECONDS = TTL_PROFILE  # 1 hr
+PROMPT_TTL_SECONDS  = 60 * 60
+TOOLS_TTL_SECONDS   = 60 * 60
 
 
 @dataclass
@@ -82,6 +81,7 @@ class ProfileConfig:
     max_turns: int
     prompt_content: str | None
     allowed_tools: list[str] | None  # None = admin (unrestricted)
+    connected_providers: list[str]   # OAuth provider names the user has connected
 
 
 class ProfileCache:
@@ -184,7 +184,8 @@ class ProfileCache:
                         COALESCE(ap.temperature, 0.7)                           AS temperature,
                         COALESCE(ap.max_turns,   100)                           AS max_turns,
                         p.content                                               AS prompt_content,
-                        array_agg(t.name) FILTER (WHERE t.name IS NOT NULL)    AS tool_names,
+                        array_agg(DISTINCT t.name)  FILTER (WHERE t.name  IS NOT NULL) AS tool_names,
+                        array_agg(DISTINCT ip.name) FILTER (WHERE ip.name IS NOT NULL) AS connected_providers,
                         EXISTS(
                             SELECT 1
                             FROM   user_roles ur
@@ -200,6 +201,10 @@ class ProfileCache:
                                                      AND p.is_active    = TRUE
                     LEFT JOIN profile_tools       pt  ON pt.profile_id  = ap.id
                     LEFT JOIN tools               t   ON t.id            = pt.tool_id
+                    LEFT JOIN integration_user_connections iuc
+                                                     ON iuc.user_id     = u.uid
+                                                     AND iuc.status     = 'connected'
+                    LEFT JOIN integration_providers ip ON ip.id          = iuc.provider_id
                     GROUP BY ap.id, ap.model_name, ap.temperature,
                              ap.max_turns, p.content
                     LIMIT 1
@@ -217,7 +222,8 @@ class ProfileCache:
                 temperature=0.7,
                 max_turns=100,
                 prompt_content=None,
-                allowed_tools=[],   # fail-closed
+                allowed_tools=[],
+                connected_providers=[],
             )
 
         is_admin: bool = bool(row["is_admin"])
@@ -230,7 +236,8 @@ class ProfileCache:
                 temperature=float(row["temperature"]),
                 max_turns=int(row["max_turns"]),
                 prompt_content=row["prompt_content"],
-                allowed_tools=None,  # None = unrestricted
+                allowed_tools=None,
+                connected_providers=list(row["connected_providers"] or []),
             )
 
         # Non-admin: tool list from profile_tools
@@ -258,4 +265,5 @@ class ProfileCache:
             max_turns=int(row["max_turns"]),
             prompt_content=row["prompt_content"],
             allowed_tools=allowed_tools,
+            connected_providers=list(row["connected_providers"] or []),
         )

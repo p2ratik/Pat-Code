@@ -10,8 +10,7 @@ from redis.asyncio import Redis
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-from api.cache.conv_context import ConversationContextRepository
-from api.cache.profile_cache import ProfileCache
+from api.cache import CacheManager
 from api.db.database import CloudDatabase
 from api.auth.service import AuthService
 from api.mcp.service import CloudMCPService
@@ -45,20 +44,15 @@ async def lifespan(app: FastAPI):
     db = CloudDatabase(database_url)
     await db.initialize()
     redis = Redis.from_url(redis_url, decode_responses=True)
-    conversation_context_repo = ConversationContextRepository(db, redis)
+    cache = CacheManager(db, redis)
 
-    # ProfileCache: single-query + Redis-backed profile config for every request.
-    # Must be created before AuthService so we can inject it for invalidation.
-    profile_cache = ProfileCache(db, redis)
-
-    # AuthService receives profile_cache so it can invalidate on profile/tool changes.
-    auth_service = AuthService(db, profile_cache=profile_cache)
+    # AuthService receives cache so it can invalidate on profile/tool changes.
+    auth_service = AuthService(db, profile_cache=cache.profiles)
 
     app.state.db = db
     app.state.redis = redis
     app.state.auth_service = auth_service
-    app.state.profile_cache = profile_cache
-    app.state.conversation_context_repo = conversation_context_repo
+    app.state.cache = cache
     app.state.mcp_service = CloudMCPService(db)
 
     # Integration platform — managers share the same provider registry instance.
@@ -69,7 +63,7 @@ async def lifespan(app: FastAPI):
         redis=redis,
         credential_manager=credential_manager,
         providers=providers,
-        profile_cache=profile_cache,
+        profile_cache=cache.profiles,
     )
     app.state.integration_service = IntegrationService(db=db)
     app.state.credential_manager = credential_manager
@@ -88,8 +82,8 @@ async def lifespan(app: FastAPI):
 
     app.state.pat_service = PATService(
         db=db,
-        conversation_context_repo=conversation_context_repo,
-        profile_cache=profile_cache,
+        conversation_context_repo=cache.conversations,
+        profile_cache=cache.profiles,
         base_tool_registry=app.state.base_tool_registry,
         mcp_service=app.state.mcp_service,
         credential_manager=credential_manager,

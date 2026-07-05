@@ -159,12 +159,18 @@ class CloudAgentRuntime:
     # Factory
     # ------------------------------------------------------------------
     @classmethod
-    def build(cls, config: Config, base_registry=None, user_id: str | None = None, credential_manager=None) -> "CloudAgentRuntime":
+    def build(
+        cls,
+        config: Config,
+        base_registry=None,
+        user_id: str | None = None,
+        credential_manager=None,
+        connected_providers: list[str] | None = None,
+    ) -> "CloudAgentRuntime":
         """Build a CloudAgentRuntime from a Config.
 
-        base_registry: the application-wide ToolRegistry singleton built at
-          startup. Reused via ToolRegistryView — no builtin re-scan per request.
-          MCP and integration tools are added per-request inside initialize().
+        connected_providers: pre-resolved from ProfileConfig cache so initialize()
+        can skip the DB lookup entirely on the hot path.
         """
         client = LLMClient(config)
 
@@ -201,6 +207,7 @@ class CloudAgentRuntime:
             user_id=user_id,
             credential_manager=credential_manager,
         )
+        runtime._connected_providers = connected_providers  # None = use DB fallback
         runtime.execution_engine = ExecutionEngine(
             runtime=runtime,
             hooks=[
@@ -248,9 +255,12 @@ class CloudAgentRuntime:
         if self.user_id and self.credential_manager and isinstance(self.tool_registry, ToolRegistryView):
             from tools.integrations import get_all_integration_tools
             try:
-                connected = await self.credential_manager.get_connected_providers(self.user_id)
+                # Use pre-cached providers from ProfileConfig; fall back to DB only when unavailable.
+                if self._connected_providers is not None:
+                    connected = self._connected_providers
+                else:
+                    connected = await self.credential_manager.get_connected_providers(self.user_id)
                 connected_set = set(connected)
-                # O(1) membership test; None means admin — no restriction.
                 allowed_set = (
                     set(self.config.allowed_tools)
                     if self.config.allowed_tools is not None
