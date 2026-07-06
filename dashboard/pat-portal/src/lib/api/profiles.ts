@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
 
 export interface AgentProfile {
   id: string;
@@ -34,25 +34,31 @@ export interface ProfileUpdate {
 export const profilesApi = {
   // List all profiles
   getProfiles: async (): Promise<AgentProfile[]> => {
-    const response = await apiClient.get<AgentProfile[]>('/profiles');
+    const response = await apiClient.get<AgentProfile[]>("/profiles");
     return response.data;
   },
 
   // Get a single profile (fetches full list, finds by id - backend has no single-get)
   getProfile: async (profileId: string): Promise<AgentProfile | null> => {
-    const response = await apiClient.get<AgentProfile[]>('/profiles');
-    return response.data.find(p => p.id === profileId) ?? null;
+    const response = await apiClient.get<AgentProfile[]>("/profiles");
+    return response.data.find((p) => p.id === profileId) ?? null;
   },
 
   // Create a new profile
   createProfile: async (data: ProfileCreate): Promise<AgentProfile> => {
-    const response = await apiClient.post<AgentProfile>('/profiles', data);
+    const response = await apiClient.post<AgentProfile>("/profiles", data);
     return response.data;
   },
 
   // Partially update a profile
-  updateProfile: async (profileId: string, data: ProfileUpdate): Promise<AgentProfile> => {
-    const response = await apiClient.patch<AgentProfile>(`/profiles/${profileId}`, data);
+  updateProfile: async (
+    profileId: string,
+    data: ProfileUpdate,
+  ): Promise<AgentProfile> => {
+    const response = await apiClient.patch<AgentProfile>(
+      `/profiles/${profileId}`,
+      data,
+    );
     return response.data;
   },
 };

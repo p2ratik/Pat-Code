@@ -1,39 +1,41 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useAuthStore } from '@/lib/store/useAuthStore';
-import { authApi } from '@/lib/api/auth';
+import { useState } from "react";
+import { authApi } from "@/lib/api/auth";
+import { useAuthStore } from "@/lib/store/useAuthStore";
 
 export default function LoginPage() {
-  const [userId, setUserId] = useState('');
+  const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const { setAuth } = useAuthStore();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId.trim()) return;
-    
+
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
       // Get token
       const tokenData = await authApi.generateToken(userId);
-      
+
       // Temporarily set token so apiClient interceptor can use it
       useAuthStore.getState().setToken(tokenData.access_token);
 
       // Get user details
       const userData = await authApi.getUser(userId);
-      
+
       // Store fully in Zustand
       useAuthStore.getState().setAuth(tokenData.access_token, userData);
-      
+
       // Redirect to dashboard
-      window.location.href = '/';
+      window.location.href = "/";
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to login. Check User ID.');
+      setError(
+        err?.response?.data?.detail || "Failed to login. Check User ID.",
+      );
     } finally {
       setLoading(false);
     }
@@ -51,7 +53,10 @@ export default function LoginPage() {
         <div className="bg-[#0A0A0A] py-8 px-4 border border-zinc-800 shadow sm:rounded-xl sm:px-10">
           <form className="space-y-6" onSubmit={handleLogin}>
             <div>
-              <label htmlFor="userId" className="block text-sm font-medium text-zinc-300">
+              <label
+                htmlFor="userId"
+                className="block text-sm font-medium text-zinc-300"
+              >
                 User ID (UUID)
               </label>
               <div className="mt-1">
@@ -68,11 +73,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {error && (
-              <div className="text-sm text-red-500">
-                {error}
-              </div>
-            )}
+            {error && <div className="text-sm text-red-500">{error}</div>}
 
             <div>
               <button
@@ -80,7 +81,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="flex w-full justify-center rounded-md border border-transparent bg-zinc-100 py-2 px-4 text-sm font-medium text-zinc-900 shadow-sm hover:bg-white focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 disabled:opacity-50"
               >
-                {loading ? 'Signing in...' : 'Sign in'}
+                {loading ? "Signing in..." : "Sign in"}
               </button>
             </div>
           </form>

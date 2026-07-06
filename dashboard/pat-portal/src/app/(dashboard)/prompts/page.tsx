@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { promptsApi, PromptCreate } from '@/lib/api/prompts';
-import { Plus, FileText, CheckCircle2, X, Loader2, Pencil } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, FileText, Loader2, Pencil, Plus, X } from "lucide-react";
+import { useState } from "react";
+import { PromptCreate, promptsApi } from "@/lib/api/prompts";
 
 // ---------------------------------------------------------------------------
 // Create / Edit Prompt Modal
@@ -13,23 +13,38 @@ function PromptModal({
   existing,
 }: {
   onClose: () => void;
-  existing?: { id: string; name: string; content: string; version: number; is_active: boolean } | null;
+  existing?: {
+    id: string;
+    name: string;
+    content: string;
+    version: number;
+    is_active: boolean;
+  } | null;
 }) {
   const qc = useQueryClient();
   const isEdit = !!existing;
 
   const [form, setForm] = useState({
-    name: existing?.name ?? '',
-    content: existing?.content ?? '',
+    name: existing?.name ?? "",
+    content: existing?.content ?? "",
     version: existing?.version ?? 1,
   });
   const [isActive, setIsActive] = useState(existing?.is_active ?? true);
 
-  const set = (k: keyof typeof form, v: any) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: keyof typeof form, v: any) =>
+    setForm((f) => ({ ...f, [k]: v }));
 
   const createMutation = useMutation({
-    mutationFn: () => promptsApi.createPrompt({ name: form.name, content: form.content, version: form.version }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); onClose(); },
+    mutationFn: () =>
+      promptsApi.createPrompt({
+        name: form.name,
+        content: form.content,
+        version: form.version,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prompts"] });
+      onClose();
+    },
   });
 
   const updateMutation = useMutation({
@@ -39,7 +54,10 @@ function PromptModal({
         content: form.content,
         is_active: isActive,
       }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['prompts'] }); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["prompts"] });
+      onClose();
+    },
   });
 
   const mutation = isEdit ? updateMutation : createMutation;
@@ -55,9 +73,12 @@ function PromptModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-zinc-800 shrink-0">
           <h2 className="text-base font-semibold text-white">
-            {isEdit ? 'Edit Prompt' : 'Create System Prompt'}
+            {isEdit ? "Edit Prompt" : "Create System Prompt"}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-200 transition-colors"
+          >
             <X size={18} />
           </button>
         </div>
@@ -65,11 +86,13 @@ function PromptModal({
         {/* Body */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Name *</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+              Name *
+            </label>
             <input
               type="text"
               value={form.name}
-              onChange={e => set('name', e.target.value)}
+              onChange={(e) => set("name", e.target.value)}
               placeholder="e.g. Research Assistant Prompt"
               className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 placeholder-zinc-600"
             />
@@ -77,22 +100,26 @@ function PromptModal({
 
           {!isEdit && (
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Version</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                Version
+              </label>
               <input
                 type="number"
                 min={1}
                 value={form.version}
-                onChange={e => set('version', parseInt(e.target.value) || 1)}
+                onChange={(e) => set("version", parseInt(e.target.value) || 1)}
                 className="w-24 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Content *</label>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+              Content *
+            </label>
             <textarea
               value={form.content}
-              onChange={e => set('content', e.target.value)}
+              onChange={(e) => set("content", e.target.value)}
               rows={12}
               placeholder="You are a helpful research assistant. Your goal is to..."
               className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 placeholder-zinc-600 resize-y font-mono"
@@ -103,14 +130,16 @@ function PromptModal({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setIsActive(v => !v)}
-                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? 'bg-emerald-500' : 'bg-zinc-600'}`}
+                onClick={() => setIsActive((v) => !v)}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? "bg-emerald-500" : "bg-zinc-600"}`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${isActive ? 'translate-x-4' : 'translate-x-0'}`}
+                  className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${isActive ? "translate-x-4" : "translate-x-0"}`}
                 />
               </button>
-              <span className="text-sm text-zinc-300">{isActive ? 'Active' : 'Inactive'}</span>
+              <span className="text-sm text-zinc-300">
+                {isActive ? "Active" : "Inactive"}
+              </span>
             </div>
           )}
         </div>
@@ -118,22 +147,30 @@ function PromptModal({
         {/* Error */}
         {mutation.isError && (
           <p className="px-6 pb-2 text-xs text-red-400">
-            {(mutation.error as any)?.response?.data?.detail || 'Something went wrong.'}
+            {(mutation.error as any)?.response?.data?.detail ||
+              "Something went wrong."}
           </p>
         )}
 
         {/* Footer */}
         <div className="flex justify-end gap-3 p-6 border-t border-zinc-800 shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
-            disabled={mutation.isPending || !form.name.trim() || !form.content.trim()}
+            disabled={
+              mutation.isPending || !form.name.trim() || !form.content.trim()
+            }
             className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-900 text-sm font-medium rounded-md hover:bg-white disabled:opacity-50 transition-colors"
           >
-            {mutation.isPending && <Loader2 size={14} className="animate-spin" />}
-            {isEdit ? 'Save Changes' : 'Create Prompt'}
+            {mutation.isPending && (
+              <Loader2 size={14} className="animate-spin" />
+            )}
+            {isEdit ? "Save Changes" : "Create Prompt"}
           </button>
         </div>
       </div>
@@ -147,16 +184,30 @@ function PromptModal({
 export default function PromptsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<null | {
-    id: string; name: string; content: string; version: number; is_active: boolean;
+    id: string;
+    name: string;
+    content: string;
+    version: number;
+    is_active: boolean;
   }>(null);
 
-  const { data: prompts, isLoading, isError } = useQuery({
-    queryKey: ['prompts'],
+  const {
+    data: prompts,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["prompts"],
     queryFn: promptsApi.getPrompts,
   });
 
-  const openCreate = () => { setEditTarget(null); setShowModal(true); };
-  const openEdit = (p: typeof editTarget) => { setEditTarget(p); setShowModal(true); };
+  const openCreate = () => {
+    setEditTarget(null);
+    setShowModal(true);
+  };
+  const openEdit = (p: typeof editTarget) => {
+    setEditTarget(p);
+    setShowModal(true);
+  };
   const closeModal = () => setShowModal(false);
 
   return (
@@ -166,7 +217,9 @@ export default function PromptsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">System Prompts</h1>
-          <p className="text-sm text-zinc-400 mt-1">Manage system prompt templates used by agent profiles.</p>
+          <p className="text-sm text-zinc-400 mt-1">
+            Manage system prompt templates used by agent profiles.
+          </p>
         </div>
         <button
           onClick={openCreate}
@@ -191,15 +244,22 @@ export default function PromptsPage() {
           <tbody className="divide-y divide-zinc-800">
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">Loading prompts...</td>
+                <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
+                  Loading prompts...
+                </td>
               </tr>
             ) : isError ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-red-400">Failed to load prompts.</td>
+                <td colSpan={5} className="px-6 py-8 text-center text-red-400">
+                  Failed to load prompts.
+                </td>
               </tr>
             ) : prompts?.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">
+                <td
+                  colSpan={5}
+                  className="px-6 py-12 text-center text-zinc-500"
+                >
                   <div className="flex flex-col items-center gap-2">
                     <FileText size={32} className="opacity-20" />
                     <p>No prompts yet. Click "Create Prompt" to add one.</p>
@@ -208,7 +268,10 @@ export default function PromptsPage() {
               </tr>
             ) : (
               prompts?.map((prompt) => (
-                <tr key={prompt.id} className="hover:bg-zinc-900/20 transition-colors">
+                <tr
+                  key={prompt.id}
+                  className="hover:bg-zinc-900/20 transition-colors"
+                >
                   <td className="px-6 py-4 font-medium text-zinc-200">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0">
@@ -220,9 +283,7 @@ export default function PromptsPage() {
                   <td className="px-6 py-4 text-zinc-400 max-w-sm truncate">
                     {prompt.content}
                   </td>
-                  <td className="px-6 py-4 text-zinc-400">
-                    v{prompt.version}
-                  </td>
+                  <td className="px-6 py-4 text-zinc-400">v{prompt.version}</td>
                   <td className="px-6 py-4">
                     {prompt.is_active ? (
                       <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
@@ -236,7 +297,15 @@ export default function PromptsPage() {
                   </td>
                   <td className="px-6 py-4">
                     <button
-                      onClick={() => openEdit({ id: prompt.id, name: prompt.name, content: prompt.content, version: prompt.version, is_active: prompt.is_active })}
+                      onClick={() =>
+                        openEdit({
+                          id: prompt.id,
+                          name: prompt.name,
+                          content: prompt.content,
+                          version: prompt.version,
+                          is_active: prompt.is_active,
+                        })
+                      }
                       className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800"
                       title="Edit prompt"
                     >

@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
 
 export interface ChatMessage {
   message: string;
@@ -12,7 +12,7 @@ export interface ChatResponse {
 
 export const chatApi = {
   sendMessage: async (data: ChatMessage): Promise<ChatResponse> => {
-    const response = await apiClient.post<ChatResponse>('/chat', data);
+    const response = await apiClient.post<ChatResponse>("/chat", data);
     return response.data;
   },
 };

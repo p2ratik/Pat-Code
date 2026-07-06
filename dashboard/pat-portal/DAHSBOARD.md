@@ -1,174 +1,443 @@
-# PAt Agent Dashboard
+Updated PAT Dashboard Design
+Design Philosophy
 
-A sophisticated frontend dashboard for managing AI agents with custom models, prompts, and tools. Built with Next.js 16, Motion animations, and shadcn/ui components.
+PAT is an AI Agent Platform, not a workflow automation tool.
 
-## Features
+The canvas exists to help users visually organize an agent's capabilities, inspect connected tools, and configure integrations—not to define execution flow.
 
-### Multi-Agent Management
-- Create and manage multiple independent AI agents
-- Each agent has its own model selection, system prompt, and tool configuration
-- Agents are displayed in a left sidebar with quick access and selection
+The UI should feel like a blend of:
 
-### Visual Canvas
-- Central SVG-based canvas showing agent-to-tool relationships
-- SVG connections display the hierarchy from master agent nodes to connected tools
-- Real-time visual feedback with smooth Motion animations
-- Agent nodes show name and selected model
-- Tool nodes display real brand logos from SVG sources
+Linear (clean information density)
+OpenAI Playground (AI-focused interactions)
+Notion (navigation)
+Figma canvas (freeform workspace)
 
-### Tool Management
-- Extensive library of pre-configured tools (Google Drive, GitHub, Slack, Notion, Stripe, Mailchimp, X, Zapier)
-- Right-click context menu to add tools to agents
-- Search functionality to filter tools by name or category
-- Visual indicator for OAuth-required tools
+Avoid flashy animations or excessive visual effects. Every animation should communicate state.
 
-### Configuration Panel
-- Slide-out right sidebar for tool configuration
-- Tool connection status display (connected/disconnected)
-- OAuth authentication flow with "Connect Account" button
-- Settings for tool-specific configuration
-- Remove tool functionality with confirmation
+Technology Stack
+Framework
+Next.js 16
+App Router
+TypeScript
+Styling
+Tailwind CSS v4
+shadcn/ui
+State
+Zustand
+Animation
+Motion
+UI Enhancement
 
-### Design System
-- Dark theme optimized for professional AI tool interfaces
-- Inspired by Linear (information density), n8n (tool discovery), and Notion (navigation)
-- Smooth 300-400ms animations throughout the interface
-- Clean typography and spacing following design guidelines
-- Fully responsive layout with flexbox positioning
+Use Magic UI selectively for:
 
-## Architecture
+Command Palette (Ctrl+K)
+Spotlight/Search overlays
+Animated cards
+Dialogs
+Empty states
+Notification toasts
 
-### State Management
-- **Zustand store** (`lib/store.ts`): Global state for agents, tools, and UI interactions
-- Actions for adding/removing/updating agents and tools
-- Selection state for agents and tools
+Do not use shader effects, parallax, glassmorphism overload, or heavy landing-page animations inside the dashboard.
 
-### Components
+Layout
+ -------------------------------------------------------------
+| Header                                                      |
+ -------------------------------------------------------------
+| Agents |                                                |   |
+|        |                                                | T |
+|        |                                                | o |
+|        |              Infinite Canvas                   | o |
+|        |                                                | l |
+|        |                                                | C |
+|        |                                                | o |
+|        |                                                | n |
+|        |                                                | f |
+ -------------------------------------------------------------
 
-#### Layout Components
-- **AppHeader**: Top navigation with workspace info and controls
-- **LeftSidebar**: Agent list with new agent creation
-- **Canvas**: Main visual interface with SVG connections
-- **ToolConfigPanel**: Right sidebar for tool configuration
+Three-panel layout:
 
-#### Node Components
-- **AgentNode**: Circular nodes representing agents with model info
-- **ToolNode**: Tool icons with connection status indicators
-- **ContextMenuPopover**: Right-click menu with tool search
+Left Sidebar
 
-#### UI Components
-- shadcn/ui Button for consistent interactions
-- Custom Input component with dark theme support
-- Motion-powered animations for smooth transitions
+Agents
+Search
+Create Agent
+Recent Agents
 
-### Data
-- **Mock Data**: Pre-populated with 3 demo agents and various tools
-- **Tools Database**: 8 available tools with OAuth requirements
-- **Agent Models**: Multiple LLM options (GPT-4, Claude, etc.)
+Center
 
-## Technologies
+Infinite Canvas
 
-- **Framework**: Next.js 16 with App Router
-- **Styling**: Tailwind CSS v4 (dark theme)
-- **Animations**: Motion (formerly Framer Motion)
-- **State**: Zustand
-- **UI Components**: shadcn/ui
-- **Icons**: lucide-react
-- **Images**: Next.js Image optimization with real SVG logos
+Right
 
-## File Structure
+Configuration Panel
+Infinite Canvas
 
-```
-components/
-├── ui/
-│   ├── button.tsx
-│   └── input.tsx
-├── app-header.tsx
-├── left-sidebar.tsx
-├── canvas.tsx
-├── agent-node.tsx
-├── tool-node.tsx
-├── tool-config-panel.tsx
-└── context-menu-popover.tsx
+Instead of a static SVG canvas, the center should behave like a lightweight workspace.
 
-lib/
-├── store.ts           # Zustand state management
-├── tools-data.ts      # Available tools and models
-├── mock-data.ts       # Demo agents initialization
-└── utils.ts           # Utility functions (cn helper)
+Capabilities:
 
-app/
-├── layout.tsx         # Root layout with dark theme
-├── globals.css        # Tailwind config and theme
-├── page.tsx           # Main dashboard page
-```
+✅ Infinite panning
 
-## Key Design Decisions
+✅ Mouse wheel zoom
 
-### SVG Canvas
-- Lightweight and performant for visual connections
-- Easily animatable with Motion
-- No heavy canvas library dependencies
+✅ Trackpad zoom
 
-### Three-Panel Layout
-- Left sidebar for navigation (Linear-inspired)
-- Center canvas for visual building (n8n-inspired)
-- Right panel for configuration (clean, focused UX)
+✅ Drag individual tool nodes
 
-### Dark Theme
-- Primary color: Deep blue (#52a3ff) for AI-forward aesthetic
-- Base: Very dark grays (#09, #125) for reduced eye strain
-- Borders: Subtle transparent whites for depth
-- No gradients: Solid colors for professional appearance
+✅ Smooth pan
 
-### Animations
-- 350ms slide-in for side panels
-- 300ms node appear animations with stagger
-- 200ms connection line draws
-- 150ms hover effects
-- All animations use Motion's optimized defaults
+✅ Smooth zoom
 
-## Usage
+✅ Optional snap-to-grid
 
-### Creating an Agent
-1. Click "New Agent" button in left sidebar
-2. Agent appears with default settings
-3. Click to select and manage tools
+This is not a workflow graph.
 
-### Adding Tools to an Agent
-1. Right-click on an agent node in canvas
-2. Search for tools in the context menu
-3. Tools appear connected to the agent with SVG lines
-4. Click tool to configure settings
+Connections simply indicate:
 
-### Configuring a Tool
-1. Click any tool node on the canvas
-2. Right sidebar opens with tool details
-3. View connection status
-4. Configure OAuth if required
-5. Customize settings
-6. Click "Remove Tool" to disconnect
+Agent
 
-### Switching Agents
-- Click any agent in the left sidebar
-- Header updates to show selected agent
-- Canvas updates to show that agent's tools
+├── Gmail
 
-## Performance
+├── Google Drive
 
-- Fast builds with Turbopack (Next.js 16 default)
-- Optimized animations with Motion
-- No layout shifts with careful Tailwind usage
-- Image optimization for SVG logos
-- Efficient state management with Zustand
+├── GitHub
 
-## Future Enhancements
+├── Slack
 
-- Backend API integration for persistence
-- Real OAuth implementation for tools
-- Workspace/team management
-- Agent templates library
-- Tool configuration validation
-- Export/import agents
-- Collaboration features
-- Workflow history and monitoring
+No directional arrows.
+
+No execution edges.
+
+Canvas Behavior
+
+Each Agent owns its own canvas layout.
+
+Example:
+
+Agent A
+
+      Gmail
+
+ GitHub    Drive
+
+      GPT-5
+
+Agent B
+
+Claude
+
+Discord
+
+Stripe
+
+Notion
+
+When switching agents, the canvas remembers node positions.
+
+This makes each workspace feel personal.
+
+Tool Nodes
+
+Each tool is represented as a movable node.
+
+Node contains:
+
+Brand logo
+Tool name
+Connection badge
+Health indicator
+
+Status badges:
+
+🟢 Connected
+
+🟡 OAuth Required
+
+🔴 Error
+
+⚪ Disabled
+
+Dragging only changes visual organization.
+
+It never changes execution.
+
+Agent Node
+
+The Agent remains the visual root.
+
+Display:
+
+Agent Name
+Selected Model
+Active Profile
+Memory Status
+
+The Agent node should remain centered by default but can also be repositioned if desired.
+
+Adding Tools
+
+Instead of right-click only:
+
+Floating "+" button on canvas.
+
+Click:
+
++ Add Tool
+
+Search...
+
+Google Drive
+
+GitHub
+
+Slack
+
+Notion
+
+Magic UI Command Menu style.
+
+Much easier to discover.
+
+Canvas Toolbar
+
+Top-right floating controls.
+
++
+
+Search
+
+Zoom +
+
+Zoom -
+
+Fit Canvas
+
+Reset Layout
+
+Minimal.
+
+Hidden until hover if desired.
+
+Configuration Panel
+
+Slide-out right panel.
+
+Shows:
+
+Tool Information
+
+OAuth Status
+
+Permissions
+
+Configuration
+
+Logs
+
+Disconnect
+
+Advanced Settings
+
+Motion animation:
+
+~300 ms slide.
+
+Command Palette
+
+One of the primary interactions.
+
+Ctrl + K
+
+Search everything:
+
+Create Agent
+
+Open Agent
+
+Search Conversation
+
+Connect Gmail
+
+Add Tool
+
+Open Logs
+
+Settings
+
+Models
+
+This should become the fastest navigation method.
+
+Search
+
+Global search.
+
+Should search:
+
+Agents
+Conversations
+Prompts
+Tools
+Memories
+Settings
+Header
+
+Contains:
+
+Workspace
+
+Current Agent
+
+Model
+
+Run Status
+
+Notifications
+
+User Menu
+
+No clutter.
+
+Animations
+
+Motion only.
+
+Animation budget:
+
+Sidebar:
+
+300 ms
+
+Panel:
+
+300 ms
+
+Node appear:
+
+200 ms
+
+Hover:
+
+150 ms
+
+Connection draw:
+
+200 ms
+
+Zoom:
+
+Smooth interpolation
+
+Drag:
+
+Physics-based
+
+No bouncing.
+
+No exaggerated easing.
+
+Future Live Execution Overlay
+
+Later versions should support visual execution feedback.
+
+When the agent is working:
+
+User Prompt
+
+↓
+
+Thinking...
+
+↓
+
+✓ Selected Google Drive
+
+↓
+
+✓ OAuth Verified
+
+↓
+
+✓ Downloading PDF
+
+↓
+
+✓ Reading Document
+
+↓
+
+✓ Writing Summary
+
+↓
+
+Complete
+
+This is not a workflow editor.
+
+It is a runtime visualization.
+
+Think of it as watching the agent think.
+
+Monitoring Page (Future)
+
+Separate from the canvas.
+
+Use standard dashboards.
+
+Cards:
+
+Requests
+Latency
+Token Usage
+Cache Hit Ratio
+Tool Usage
+Error Rate
+
+Charts:
+
+Prometheus
+Grafana
+
+Do not build custom chart components.
+
+Frontend Libraries
+Core
+Next.js
+Tailwind CSS
+shadcn/ui
+Zustand
+Motion
+UX Enhancements
+Magic UI (Command Palette, dialogs, animated cards, empty states)
+lucide-react (icons)
+Do Not Use
+GSAP
+Anime.js
+Lenis
+Neo-Brutalism UI
+Heavy shader backgrounds
+
+These libraries either overlap with Motion or are better suited for marketing pages than a productivity dashboard.
+
+One final suggestion
+
+I would make one architectural change compared to the original design: don't build the canvas yourself with raw SVGs.
+
+Use a dedicated graph/canvas library such as React Flow for the workspace. You're not using it to create workflows—you'll simply disable connection editing and use it for what it's exceptionally good at:
+
+Use React Flow.
+
+Disable edge editing.
+
+Disable connection creation.
+
+Keep only:
+
+Pan
+
+Zoom
+
+Drag
+
+Node Position Persistence
+

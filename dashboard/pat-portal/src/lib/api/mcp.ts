@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
 
 export interface MCPServer {
   id: string;
@@ -49,7 +49,7 @@ export interface OAuthSubmission {
   access_token: string;
   refresh_token?: string;
   token_type?: string;
-  expires_in?: number;       // seconds
+  expires_in?: number; // seconds
   provider_user_id?: string;
 }
 
@@ -73,65 +73,92 @@ export interface OAuthTokenStatus {
 
 export const mcpApi = {
   listServers: async (): Promise<MCPServer[]> => {
-    const res = await apiClient.get<MCPServer[]>('/mcp/servers');
+    const res = await apiClient.get<MCPServer[]>("/mcp/servers");
     return res.data;
   },
 
   registerServer: async (data: MCPServerCreate): Promise<MCPServer> => {
-    const res = await apiClient.post<MCPServer>('/mcp/servers', data);
+    const res = await apiClient.post<MCPServer>("/mcp/servers", data);
     return res.data;
   },
 
   connect: async (serverName: string): Promise<MCPConnection> => {
-    const res = await apiClient.post<MCPConnection>('/mcp/connect', { server_name: serverName });
+    const res = await apiClient.post<MCPConnection>("/mcp/connect", {
+      server_name: serverName,
+    });
     return res.data;
   },
 
   disconnect: async (serverName: string): Promise<MCPConnection> => {
-    const res = await apiClient.post<MCPConnection>('/mcp/disconnect', { server_name: serverName });
+    const res = await apiClient.post<MCPConnection>("/mcp/disconnect", {
+      server_name: serverName,
+    });
     return res.data;
   },
 
   getStatus: async (): Promise<MCPConnection[]> => {
-    const res = await apiClient.get<MCPConnection[]>('/mcp/status');
+    const res = await apiClient.get<MCPConnection[]>("/mcp/status");
     return res.data;
   },
 
   // Admin: connect to the live server, discover tools, and cache them in DB
   discoverTools: async (serverName: string): Promise<{ detail: string }> => {
-    const res = await apiClient.post<{ detail: string }>(`/mcp/servers/${serverName}/discover`);
+    const res = await apiClient.post<{ detail: string }>(
+      `/mcp/servers/${serverName}/discover`,
+    );
     return res.data;
   },
 
   // Admin: push tool discovery results into the DB cache
-  syncTools: async (serverName: string, tools: object[]): Promise<{ detail: string }> => {
-    const res = await apiClient.post<{ detail: string }>(`/mcp/servers/${serverName}/sync`, tools);
+  syncTools: async (
+    serverName: string,
+    tools: object[],
+  ): Promise<{ detail: string }> => {
+    const res = await apiClient.post<{ detail: string }>(
+      `/mcp/servers/${serverName}/sync`,
+      tools,
+    );
     return res.data;
   },
 
   getServerTools: async (serverName: string): Promise<MCPTool[]> => {
-    const res = await apiClient.get<MCPTool[]>(`/mcp/servers/${serverName}/tools`);
+    const res = await apiClient.get<MCPTool[]>(
+      `/mcp/servers/${serverName}/tools`,
+    );
     return res.data;
   },
 
   // Submit an OAuth access token after the user completes the OAuth browser flow.
   submitOAuthToken: async (data: OAuthSubmission): Promise<MCPConnection> => {
-    const res = await apiClient.post<MCPConnection>('/mcp/oauth/callback', data);
+    const res = await apiClient.post<MCPConnection>(
+      "/mcp/oauth/callback",
+      data,
+    );
     return res.data;
   },
 
   startOAuth: async (data: OAuthStart): Promise<OAuthStartResponse> => {
-    const res = await apiClient.post<OAuthStartResponse>('/mcp/oauth/start', data);
+    const res = await apiClient.post<OAuthStartResponse>(
+      "/mcp/oauth/start",
+      data,
+    );
     return res.data;
   },
 
-  getOAuthTokenStatus: async (serverName: string): Promise<OAuthTokenStatus> => {
-    const res = await apiClient.get<OAuthTokenStatus>(`/mcp/oauth/token-status/${serverName}`);
+  getOAuthTokenStatus: async (
+    serverName: string,
+  ): Promise<OAuthTokenStatus> => {
+    const res = await apiClient.get<OAuthTokenStatus>(
+      `/mcp/oauth/token-status/${serverName}`,
+    );
     return res.data;
   },
 
   reconnectOAuth: async (data: OAuthStart): Promise<OAuthStartResponse> => {
-    const res = await apiClient.post<OAuthStartResponse>('/mcp/oauth/reconnect', data);
+    const res = await apiClient.post<OAuthStartResponse>(
+      "/mcp/oauth/reconnect",
+      data,
+    );
     return res.data;
   },
 };

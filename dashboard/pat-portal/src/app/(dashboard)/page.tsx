@@ -1,82 +1,139 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profilesApi } from '@/lib/api/profiles';
-import { toolsApi } from '@/lib/api/tools';
-import { authApi } from '@/lib/api/auth';
-import { MessageSquare, Bot, Wrench, Users } from 'lucide-react';
-import Link from 'next/link';
+import { toolsApi, Tool } from '@/lib/api/tools';
+import { AgentCanvas } from '@/components/canvas/AgentCanvas';
+import { ConfigurationPanel } from '@/components/canvas/ConfigurationPanel';
+import { AddToolDialog } from '@/components/layout/AddToolDialog';
+import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/useAuthStore';
-
-function StatCard({ label, value, sub, icon: Icon }: {
-  label: string; value: string | number; sub: string; icon: React.ElementType;
-}) {
-  return (
-    <div className="p-6 rounded-xl border border-zinc-800 bg-zinc-900/50 flex flex-col gap-2">
-      <div className="text-zinc-400 text-sm font-medium flex items-center gap-2">
-        <Icon size={16} />{label}
-      </div>
-      <div className="text-3xl font-semibold text-white">{value}</div>
-      <div className="text-xs text-zinc-500">{sub}</div>
-    </div>
-  );
-}
+import { authApi } from '@/lib/api/auth';
 
 export default function DashboardPage() {
+  const searchParams = useSearchParams();
+  const agentId = searchParams?.get('agent');
+  const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
-  const { data: profiles } = useQuery({ queryKey: ['profiles'], queryFn: profilesApi.getProfiles });
-  const { data: tools } = useQuery({ queryKey: ['tools'], queryFn: toolsApi.getTools });
-  const { data: users } = useQuery({ queryKey: ['users'], queryFn: authApi.listUsers });
+  const { data: profiles, isLoading: profilesLoading } = useQuery({ 
+    queryKey: ['profiles'], 
+    queryFn: profilesApi.getProfiles 
+  });
+  
+  const { data: allTools, isLoading: toolsLoading } = useQuery({ 
+    queryKey: ['tools'], 
+    queryFn: toolsApi.getTools 
+  });
 
-  // Derive active profile from the user list (approximate for dashboard)
-  const activeProfile = profiles?.[0];
+  // Determine active profile
+  const activeProfile = agentId 
+    ? profiles?.find(p => p.id === agentId)
+    : profiles?.[0];
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 18 ? 'Good Afternoon' : 'Good Evening';
+  const { data: attachedToolsData, isLoading: attachedToolsLoading } = useQuery({
+    queryKey: ['profileTools', activeProfile?.id],
+    queryFn: () => toolsApi.getProfileTools(activeProfile!.id),
+    enabled: !!activeProfile?.id,
+  });
+
+  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  // Sync tools state
+  const attachedTools = attachedToolsData || [];
+
+  const handleNodeClick = (event: React.MouseEvent, node: any) => {
+    setSelectedNode(node);
+    setIsConfigOpen(true);
+  };
+
+  const assignToolsMutation = useMutation({
+    mutationFn: (toolNames: string[]) => toolsApi.assignToolsToProfile(activeProfile!.id, toolNames),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profileTools', activeProfile?.id] });
+    }
+  });
+
+  const assignProfileMutation = useMutation({
+    mutationFn: () => authApi.assignProfile(user!.id, activeProfile!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userProfile', user?.id] });
+    }
+  });
+
+  const handleAddTool = (tool: Tool) => {
+    if (!activeProfile) return;
+    const currentToolNames = attachedTools.map(t => t.name);
+    if (!currentToolNames.includes(tool.name)) {
+      assignToolsMutation.mutate([...currentToolNames, tool.name]);
+    }
+  };
+
+  const handleRemoveTool = (toolName: string) => {
+    if (!activeProfile) return;
+    const currentToolNames = attachedTools.map(t => t.name).filter(name => name !== toolName);
+    assignToolsMutation.mutate(currentToolNames);
+    if (selectedNode?.data?.name === toolName) {
+      setIsConfigOpen(false);
+      setSelectedNode(null);
+    }
+  };
+
+  const handlePaneClick = () => {
+    // setIsConfigOpen(false); 
+  };
+
+  if (profilesLoading || toolsLoading) {
+    return (
+      <div className="flex-1 h-full flex items-center justify-center bg-[#0A0A0A]">
+        <div className="text-zinc-500 animate-pulse">Loading Workspace...</div>
+      </div>
+    );
+  }
+
+  if (!activeProfile) {
+    return (
+      <div className="flex-1 h-full flex flex-col items-center justify-center bg-[#0A0A0A] gap-4">
+        <div className="text-zinc-400">No agents found. Create one to get started.</div>
+        <button 
+          onClick={() => {
+            import('@/lib/store/useUIStore').then(m => m.useUIStore.getState().setCreateAgentOpen(true));
+          }}
+          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md text-sm font-medium transition-colors"
+        >
+          Create Agent
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-white">
-          {greeting}{user?.display_name ? `, ${user.display_name}` : ''}
-        </h1>
-        <p className="text-zinc-400 mt-2">
-          {activeProfile ? (
-            <><span className="text-emerald-500 font-medium">{activeProfile.name}</span> is the active profile.</>
-          ) : 'No active profile assigned.'}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard label="Profiles" value={profiles?.length ?? '—'} sub="Configured" icon={Bot} />
-        <StatCard label="Tools" value={tools?.length ?? '—'} sub="In registry" icon={Wrench} />
-        <StatCard label="Users" value={users?.length ?? '—'} sub="Total" icon={Users} />
-        <StatCard
-          label="Current Model"
-          value={activeProfile?.model_name ?? '—'}
-          sub={activeProfile ? `temp ${activeProfile.temperature}` : 'No profile'}
-          icon={MessageSquare}
+    <div className="relative w-full h-full flex flex-col overflow-hidden bg-[#0A0A0A]">
+      {/* Canvas Area */}
+      <div className="flex-1 relative">
+        <AgentCanvas 
+          agent={activeProfile} 
+          tools={attachedTools} 
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+        />
+        
+        {/* Slide-out Configuration Panel */}
+        <ConfigurationPanel 
+          isOpen={isConfigOpen} 
+          onClose={() => setIsConfigOpen(false)} 
+          selectedNode={selectedNode}
+          onRemoveTool={handleRemoveTool}
+          onSetActiveProfile={() => assignProfileMutation.mutate()}
+          isAssigningProfile={assignProfileMutation.isPending}
         />
       </div>
 
-      <div className="pt-2">
-        <h2 className="text-base font-medium text-zinc-200 mb-4">Quick Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <Link href="/chat" className="px-4 py-2 bg-zinc-100 text-zinc-900 font-medium rounded-md hover:bg-white transition-colors text-sm">
-            + New Chat
-          </Link>
-          <Link href="/profiles" className="px-4 py-2 border border-zinc-800 text-zinc-300 font-medium rounded-md hover:bg-zinc-800 transition-colors text-sm">
-            Manage Profiles
-          </Link>
-          <Link href="/tools" className="px-4 py-2 border border-zinc-800 text-zinc-300 font-medium rounded-md hover:bg-zinc-800 transition-colors text-sm">
-            Configure Tools
-          </Link>
-          <Link href="/users" className="px-4 py-2 border border-zinc-800 text-zinc-300 font-medium rounded-md hover:bg-zinc-800 transition-colors text-sm">
-            Manage Users
-          </Link>
-        </div>
-      </div>
+      <AddToolDialog tools={allTools || []} onAddTool={handleAddTool} />
     </div>
   );
 }
+
+

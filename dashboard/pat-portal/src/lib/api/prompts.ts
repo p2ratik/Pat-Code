@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
 
 export interface Prompt {
   id: string;
@@ -24,13 +24,13 @@ export interface PromptUpdate {
 export const promptsApi = {
   // List all prompts
   getPrompts: async (): Promise<Prompt[]> => {
-    const response = await apiClient.get<Prompt[]>('/prompts');
+    const response = await apiClient.get<Prompt[]>("/prompts");
     return response.data;
   },
 
   // Create a new prompt
   createPrompt: async (data: PromptCreate): Promise<Prompt> => {
-    const response = await apiClient.post<Prompt>('/prompts', data);
+    const response = await apiClient.post<Prompt>("/prompts", data);
     return response.data;
   },
 
@@ -41,8 +41,14 @@ export const promptsApi = {
   },
 
   // Partially update a prompt
-  updatePrompt: async (promptId: string, data: PromptUpdate): Promise<Prompt> => {
-    const response = await apiClient.patch<Prompt>(`/prompts/${promptId}`, data);
+  updatePrompt: async (
+    promptId: string,
+    data: PromptUpdate,
+  ): Promise<Prompt> => {
+    const response = await apiClient.patch<Prompt>(
+      `/prompts/${promptId}`,
+      data,
+    );
     return response.data;
   },
 };

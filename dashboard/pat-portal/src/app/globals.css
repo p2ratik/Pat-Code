@@ -128,3 +128,12 @@
     @apply font-sans;
   }
 }
+
+/* Canvas Node Focus Effect */
+.react-flow:has(.react-flow__node.selected) .react-flow__node:not(.selected) {
+  opacity: 0.6;
+  filter: grayscale(20%);
+}
+.react-flow__node {
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}

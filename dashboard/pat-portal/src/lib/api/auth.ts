@@ -1,5 +1,5 @@
-import { apiClient } from './client';
-import { AgentProfile } from './profiles';
+import { apiClient } from "./client";
+import type { AgentProfile } from "./profiles";
 
 export interface User {
   id: string;
@@ -17,12 +17,15 @@ export interface AuthToken {
 
 export const authApi = {
   createUser: async (email: string, display_name: string): Promise<User> => {
-    const response = await apiClient.post<User>('/users', { email, display_name });
+    const response = await apiClient.post<User>("/users", {
+      email,
+      display_name,
+    });
     return response.data;
   },
 
   listUsers: async (): Promise<User[]> => {
-    const response = await apiClient.get<User[]>('/users');
+    const response = await apiClient.get<User[]>("/users");
     return response.data;
   },
 
@@ -37,21 +40,35 @@ export const authApi = {
   },
 
   getUserProfile: async (userId: string): Promise<AgentProfile | null> => {
-    const response = await apiClient.get<AgentProfile | null>(`/users/${userId}/profile`);
+    const response = await apiClient.get<AgentProfile | null>(
+      `/users/${userId}/profile`,
+    );
     return response.data;
   },
 
-  assignProfile: async (userId: string, profileId: string): Promise<{ detail: string }> => {
-    const response = await apiClient.post<{ detail: string }>(`/users/${userId}/profile`, {
-      profile_id: profileId,
-    });
+  assignProfile: async (
+    userId: string,
+    profileId: string,
+  ): Promise<{ detail: string }> => {
+    const response = await apiClient.post<{ detail: string }>(
+      `/users/${userId}/profile`,
+      {
+        profile_id: profileId,
+      },
+    );
     return response.data;
   },
 
-  assignRole: async (userId: string, roleName: string): Promise<{ detail: string }> => {
-    const response = await apiClient.post<{ detail: string }>(`/users/${userId}/roles`, {
-      role_name: roleName,
-    });
+  assignRole: async (
+    userId: string,
+    roleName: string,
+  ): Promise<{ detail: string }> => {
+    const response = await apiClient.post<{ detail: string }>(
+      `/users/${userId}/roles`,
+      {
+        role_name: roleName,
+      },
+    );
     return response.data;
   },
 };

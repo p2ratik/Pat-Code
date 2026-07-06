@@ -1,5 +1,7 @@
-import { Sidebar } from '@/components/layout/Sidebar';
-import { Topbar } from '@/components/layout/Topbar';
+import { CommandPalette } from "@/components/layout/CommandPalette";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { Topbar } from "@/components/layout/Topbar";
+import { CreateAgentDialog } from "@/components/layout/CreateAgentDialog";
 
 export default function DashboardLayout({
   children,
@@ -11,10 +13,12 @@ export default function DashboardLayout({
       <Sidebar />
       <div className="flex-1 flex flex-col ml-[260px]">
         <Topbar />
-        <main className="flex-1 overflow-y-auto bg-[#0A0A0A]">
+        <main className="flex-1 overflow-y-auto bg-[#0A0A0A] relative">
           {children}
         </main>
       </div>
+      <CommandPalette />
+      <CreateAgentDialog />
     </div>
   );
 }

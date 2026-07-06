@@ -1,6 +1,6 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { User } from '../api/auth';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { User } from "../api/auth";
 
 interface AuthState {
   token: string | null;
@@ -22,7 +22,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => set({ token: null, user: null }),
     }),
     {
-      name: 'pat-auth-storage',
-    }
-  )
+      name: "pat-auth-storage",
+    },
+  ),
 );
