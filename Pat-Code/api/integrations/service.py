@@ -101,9 +101,15 @@ class IntegrationService:
             )
             row = result.scalar_one_or_none()
             if row:
-                # Update credentials in case they changed in env.
+                # Sync all fields so code is always the source of truth — adding a scope
+                # to google_scopes above takes effect on the next server restart.
                 row.client_id = encrypt_token(client_id)
                 row.client_secret = encrypt_token(client_secret)
+                row.max_scopes = google_scopes
+                row.auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
+                row.token_url = "https://oauth2.googleapis.com/token"
+                row.revoke_url = "https://oauth2.googleapis.com/revoke"
+                row.icon_url = "https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
             else:
                 session.add(IntegrationProvider(
                     name="google",
