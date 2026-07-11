@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profilesApi } from '@/lib/api/profiles';
 import { toolsApi, Tool } from '@/lib/api/tools';
+import { integrationsApi } from '@/lib/api/integrations';
 import { AgentCanvas } from '@/components/canvas/AgentCanvas';
 import { ConfigurationPanel } from '@/components/canvas/ConfigurationPanel';
 import { AddToolDialog } from '@/components/layout/AddToolDialog';
@@ -36,6 +37,11 @@ export default function DashboardPage() {
     queryKey: ['profileTools', activeProfile?.id],
     queryFn: () => toolsApi.getProfileTools(activeProfile!.id),
     enabled: !!activeProfile?.id,
+  });
+
+  const { data: connections = [] } = useQuery({
+    queryKey: ['connections'],
+    queryFn: integrationsApi.getConnections,
   });
 
   const [selectedNode, setSelectedNode] = useState<any>(null);
@@ -125,6 +131,7 @@ export default function DashboardPage() {
           isOpen={isConfigOpen} 
           onClose={() => setIsConfigOpen(false)} 
           selectedNode={selectedNode}
+          connections={connections}
           onRemoveTool={handleRemoveTool}
           onSetActiveProfile={() => assignProfileMutation.mutate()}
           isAssigningProfile={assignProfileMutation.isPending}

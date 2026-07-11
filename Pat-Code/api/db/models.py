@@ -107,6 +107,7 @@ class AgentProfile(Base):
     version = Column(Integer)
     is_active = Column(Boolean, default=True)
     prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
+    owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     users = relationship("User", secondary="user_agent_profiles", back_populates="agent_profiles")

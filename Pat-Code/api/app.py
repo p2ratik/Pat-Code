@@ -69,6 +69,9 @@ async def lifespan(app: FastAPI):
     app.state.credential_manager = credential_manager
     app.state.connection_manager = connection_manager
 
+    # Seed well-known providers from env so OAuth works without manual DB steps.
+    await app.state.integration_service.seed_google_provider()
+
     # Build the base tool registry ONCE at startup.
     # Per-request runtimes filter this instead of re-scanning builtins.
     # Phase 4: add event_bus=EventBus() here.

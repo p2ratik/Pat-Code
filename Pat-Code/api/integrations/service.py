@@ -1,3 +1,4 @@
+import os
 import uuid
 from sqlalchemy import select
 from api.db.database import CloudDatabase
@@ -72,3 +73,52 @@ class IntegrationService:
             "created_at": provider.created_at,
             "updated_at": provider.updated_at,
         }
+
+    async def seed_google_provider(self) -> None:
+        """Upsert the Google OAuth provider row from env vars — idempotent, skips if vars absent."""
+        client_id = os.environ.get("GOOGLE_CLIENT_ID")
+        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            import logging
+            logging.getLogger(__name__).warning(
+                "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — skipping Google provider seed"
+            )
+            return
+
+        google_scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "openid",
+            "email",
+            "profile",
+        ]
+
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(IntegrationProvider).where(IntegrationProvider.name == "google")
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                # Update credentials in case they changed in env.
+                row.client_id = encrypt_token(client_id)
+                row.client_secret = encrypt_token(client_secret)
+            else:
+                session.add(IntegrationProvider(
+                    name="google",
+                    display_name="Google",
+                    auth_type="oauth2",
+                    client_id=encrypt_token(client_id),
+                    client_secret=encrypt_token(client_secret),
+                    auth_url="https://accounts.google.com/o/oauth2/v2/auth",
+                    token_url="https://oauth2.googleapis.com/token",
+                    revoke_url="https://oauth2.googleapis.com/revoke",
+                    max_scopes=google_scopes,
+                    icon_url="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
+                    enabled=True,
+                ))
+            await session.commit()
+
+        import logging
+        logging.getLogger(__name__).info("Google integration provider seeded/updated")

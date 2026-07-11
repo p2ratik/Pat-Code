@@ -235,12 +235,13 @@ class AuthService:
         if self._profile_cache:
             await self._profile_cache.invalidate_user(user_id)
 
-    async def list_profiles(self) -> list[dict]:
-        """List all active agent profiles."""
+    async def list_profiles(self, user_id: str, is_admin: bool = False) -> list[dict]:
+        """Return profiles owned by this user; admins see all active profiles."""
         async with self.db.get_session() as session:
-            result = await session.execute(
-                select(AgentProfile).where(AgentProfile.is_active == True)
-            )
+            q = select(AgentProfile).where(AgentProfile.is_active == True)
+            if not is_admin:
+                q = q.where(AgentProfile.owner_user_id == uuid.UUID(user_id))
+            result = await session.execute(q)
             profiles = result.scalars().all()
             return [
                 {
@@ -261,12 +262,13 @@ class AuthService:
         self,
         name: str,
         model_name: str,
+        owner_user_id: str,
         temperature: float = 0.7,
         max_turns: int = 100,
         description: str | None = None,
         prompt_id: str | None = None,
     ) -> dict:
-        """Create a new agent profile. prompt_id is optional."""
+        """Create a new agent profile owned by owner_user_id."""
         import uuid as _uuid
         async with self.db.get_session() as session:
             profile = AgentProfile(
@@ -276,6 +278,7 @@ class AuthService:
                 temperature=temperature,
                 max_turns=max_turns,
                 version=1,
+                owner_user_id=_uuid.UUID(owner_user_id),
                 prompt_id=_uuid.UUID(prompt_id) if prompt_id else None,
             )
             session.add(profile)
@@ -294,8 +297,10 @@ class AuthService:
                 "prompt_id": str(profile.prompt_id) if profile.prompt_id else None,
             }
 
-    async def update_profile(self, profile_id: str, body) -> dict:
-        """Partial update of an agent profile."""
+    async def update_profile(
+        self, profile_id: str, body, requesting_user_id: str, is_admin: bool = False
+    ) -> dict:
+        """Partial update — only the profile owner or an admin may edit."""
         import uuid as _uuid
         async with self.db.get_session() as session:
             result = await session.execute(
@@ -304,6 +309,10 @@ class AuthService:
             profile = result.scalar_one_or_none()
             if not profile:
                 raise ValueError(f"Profile not found: {profile_id}")
+
+            # Ownership guard: only the owner or an admin may update.
+            if not is_admin and str(profile.owner_user_id) != requesting_user_id:
+                raise PermissionError("Not authorised to edit this profile")
 
             if body.name is not None:
                 profile.name = body.name
@@ -317,7 +326,6 @@ class AuthService:
                 profile.description = body.description
             if body.is_active is not None:
                 profile.is_active = body.is_active
-            # Allow explicit null to clear prompt_id
             if "prompt_id" in (body.model_fields_set if hasattr(body, "model_fields_set") else {}):
                 profile.prompt_id = _uuid.UUID(body.prompt_id) if body.prompt_id else None
 
@@ -443,6 +451,17 @@ class AuthService:
                 return []
 
             return tool_names
+
+    async def is_profile_owner(self, profile_id: str, user_id: str, is_admin: bool = False) -> bool:
+        """Return True if user_id owns the profile or is an admin."""
+        if is_admin:
+            return True
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(AgentProfile.owner_user_id).where(AgentProfile.id == uuid.UUID(profile_id))
+            )
+            row = result.first()
+        return row is not None and str(row[0]) == user_id
 
     async def get_profile_tools(self, profile_id: str) -> list[dict]:
         """Get tools assigned to a specific profile."""

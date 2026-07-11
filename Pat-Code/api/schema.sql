@@ -99,8 +99,12 @@ CREATE TABLE agent_profiles (
     version INTEGER,
     is_active BOOLEAN DEFAULT TRUE,
     prompt_id UUID REFERENCES prompts(id) ON DELETE SET NULL,
+    owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Migration for existing databases:
+-- ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE;
 
 -- ============================================================
 -- USER_AGENT_PROFILES

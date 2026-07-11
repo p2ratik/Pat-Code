@@ -150,10 +150,6 @@ async def get_server_tools(
     return [MCPToolResponse(**t) for t in tools]
 
 
-# ------------------------------------------------------------------
-# User connection management
-# ------------------------------------------------------------------
-
 @router.post("/connect", response_model=MCPConnectionResponse)
 async def connect(
     body: MCPConnectRequest,
@@ -195,9 +191,6 @@ async def user_status(
     return [MCPConnectionResponse(**c) for c in connections]
 
 
-# ------------------------------------------------------------------
-# OAuth token management (user-scoped)
-# ------------------------------------------------------------------
 
 @router.post("/oauth/start", response_model=OAuthStartResponse)
 async def oauth_start(

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from api.auth.dependencies import get_current_user
 from api.integrations.models import (
     IntegrationProviderCreate,
@@ -95,6 +95,22 @@ async def oauth_callback(
     conn_mgr = request.app.state.connection_manager
     try:
         return await conn_mgr.handle_callback(body.code, body.state, body.redirect_uri)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/oauth/callback", response_model=OAuthCallbackResponse)
+async def oauth_callback_get(
+    request: Request,
+    code: str = Query(...),
+    state: str = Query(...),
+):
+    """Google's browser redirect lands here with ?code=&state= as GET query params."""
+    conn_mgr = request.app.state.connection_manager
+    # Reconstruct the redirect_uri from the incoming request so it matches what was sent.
+    redirect_uri = str(request.url).split("?")[0]
+    try:
+        return await conn_mgr.handle_callback(code, state, redirect_uri)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
