@@ -15,7 +15,23 @@ export interface AuthToken {
   token_type: string;
 }
 
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+  is_new_user: boolean;
+}
+
 export const authApi = {
+  /** Self-service: find-or-create by email, returns JWT + user in one call. */
+  loginOrRegister: async (email: string, displayName?: string): Promise<LoginResponse> => {
+    const response = await apiClient.post<LoginResponse>("/users/login", {
+      email,
+      display_name: displayName,
+    });
+    return response.data;
+  },
+
   createUser: async (email: string, display_name: string): Promise<User> => {
     const response = await apiClient.post<User>("/users", {
       email,

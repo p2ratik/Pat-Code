@@ -270,16 +270,26 @@ class ConnectionManager:
             )
             rows = result.all()
 
-        return [
-            {
-                "provider": provider.name,
-                "display_name": provider.display_name,
-                "status": conn.status,
-                "connected_at": conn.connected_at.isoformat() if conn.connected_at else None,
-                "last_used_at": conn.last_used_at.isoformat() if conn.last_used_at else None,
-            }
-            for conn, provider in rows
-        ]
+            # Fetch credentials separately to get provider_user_email
+            connections_out = []
+            for conn, provider in rows:
+                cred_result = await session.execute(
+                    select(IntegrationCredential.provider_user_email)
+                    .where(IntegrationCredential.connection_id == conn.id)
+                )
+                cred_row = cred_result.first()
+                email = cred_row[0] if cred_row else None
+
+                connections_out.append({
+                    "provider": provider.name,
+                    "display_name": provider.display_name,
+                    "status": conn.status,
+                    "email": email,
+                    "connected_at": conn.connected_at.isoformat() if conn.connected_at else None,
+                    "last_used_at": conn.last_used_at.isoformat() if conn.last_used_at else None,
+                })
+
+        return connections_out
 
     # ------------------------------------------------------------------
     # Internal helpers

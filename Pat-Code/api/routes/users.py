@@ -4,8 +4,21 @@ from api.auth.models import (
     ProfileAssign, ProfileResponse,
 )
 from api.auth.dependencies import get_current_user
+from pydantic import BaseModel
 
 router = APIRouter(tags=["users"])
+
+
+class LoginRequest(BaseModel):
+    email: str
+    display_name: str | None = None
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+    is_new_user: bool
 
 
 @router.get("", response_model=list[UserResponse])
@@ -13,6 +26,38 @@ async def list_users(request: Request, current_user: dict = Depends(get_current_
     auth_service = request.app.state.auth_service
     users = await auth_service.list_users()
     return [UserResponse(**u) for u in users]
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login_or_register(body: LoginRequest, request: Request):
+    """Self-service login. Creates a new account if the email is not yet registered.
+
+    Safe to call from the login page — returns a JWT that the frontend stores.
+    If the user already exists their account is untouched; only a fresh token is issued.
+    """
+    auth_service = request.app.state.auth_service
+    is_new = False
+
+    # Try to find an existing user by email.
+    user = await auth_service.get_user_by_email(body.email)
+    if not user:
+        # First time — create the account with whatever display_name was provided.
+        display_name = body.display_name or body.email.split("@")[0]
+        try:
+            user = await auth_service.create_user(body.email, display_name)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        is_new = True
+
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled. Contact an administrator.")
+
+    token = auth_service.create_token(user["id"])
+    return LoginResponse(
+        access_token=token,
+        user=UserResponse(**user),
+        is_new_user=is_new,
+    )
 
 
 @router.post("", response_model=UserResponse)

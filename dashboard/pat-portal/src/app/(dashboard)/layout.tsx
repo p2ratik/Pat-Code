@@ -2,6 +2,7 @@ import { CommandPalette } from "@/components/layout/CommandPalette";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CreateAgentDialog } from "@/components/layout/CreateAgentDialog";
+import { IntegrationsModal } from "@/components/layout/IntegrationsModal";
 
 export default function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default function DashboardLayout({
       </div>
       <CommandPalette />
       <CreateAgentDialog />
+      <IntegrationsModal />
     </div>
   );
 }

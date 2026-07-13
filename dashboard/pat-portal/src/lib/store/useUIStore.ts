@@ -5,6 +5,8 @@ interface UIState {
   setCreateAgentOpen: (isOpen: boolean) => void;
   isAddToolOpen: boolean;
   setAddToolOpen: (isOpen: boolean) => void;
+  isIntegrationsOpen: boolean;
+  setIntegrationsOpen: (isOpen: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -12,4 +14,6 @@ export const useUIStore = create<UIState>((set) => ({
   setCreateAgentOpen: (isOpen) => set({ isCreateAgentOpen: isOpen }),
   isAddToolOpen: false,
   setAddToolOpen: (isOpen) => set({ isAddToolOpen: isOpen }),
+  isIntegrationsOpen: false,
+  setIntegrationsOpen: (isOpen) => set({ isIntegrationsOpen: isOpen }),
 }));

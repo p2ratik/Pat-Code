@@ -83,7 +83,11 @@ class CredentialManager:
                 session.add(cred)
 
             cred.encrypted_access_token = encrypt_token(access_token)
-            cred.encrypted_refresh_token = encrypt_token(refresh_token) if refresh_token else None
+            # Only overwrite the refresh token when we actually got a new one.
+            # Google only returns a refresh_token on the first consent (or explicit re-consent).
+            # Overwriting with None would permanently break the next token-refresh cycle.
+            if refresh_token:
+                cred.encrypted_refresh_token = encrypt_token(refresh_token)
             cred.expires_at = expires_at
             cred.scopes_granted = scopes_granted
             cred.provider_user_email = provider_user_email
@@ -213,7 +217,12 @@ class CredentialManager:
         return new_access
 
     async def _check_scopes(self, provider: str, user_id: str, required: list[str]) -> None:
-        """Verify that all required scopes are present in the stored scopes_granted."""
+        """Verify that all required scopes are covered by the stored scopes_granted.
+
+        Uses prefix matching for Google-style scope hierarchies:
+        'spreadsheets' (granted) satisfies 'spreadsheets.readonly' (required)
+        because the broader scope is a strict superset.
+        """
         if not required:
             return
 
@@ -230,7 +239,16 @@ class CredentialManager:
             row = result.first()
 
         granted: list[str] = row[0] if row and row[0] else []
-        missing = [s for s in required if s not in granted]
+
+        def is_covered(req: str, granted_set: list[str]) -> bool:
+            # Exact match first.
+            if req in granted_set:
+                return True
+            # Broader scope covers narrower: granted 'auth/spreadsheets' satisfies
+            # required 'auth/spreadsheets.readonly' because the granted scope is a prefix.
+            return any(req.startswith(g) or g.startswith(req) for g in granted_set)
+
+        missing = [s for s in required if not is_covered(s, granted)]
         if missing:
             raise InsufficientScopesError(provider, missing)
 

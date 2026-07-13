@@ -7,6 +7,7 @@ import {
   Bot,
   Box,
   ChevronDown,
+  Plug,
   Plus,
   Search,
   Settings,
@@ -16,11 +17,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { authApi } from "@/lib/api/auth";
 import { profilesApi } from "@/lib/api/profiles";
+import { integrationsApi } from "@/lib/api/integrations";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { useUIStore } from "@/lib/store/useUIStore";
 
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuthStore();
+  const { setIntegrationsOpen } = useUIStore();
 
   const { data: activeProfile } = useQuery({
     queryKey: ["userProfile", user?.id],
@@ -33,6 +37,16 @@ export function Sidebar() {
     queryKey: ["profiles"],
     queryFn: profilesApi.getProfiles,
   });
+
+  // Show a live dot on the Integrations button so users immediately see
+  // whether they have any connected accounts.
+  const { data: connections = [] } = useQuery({
+    queryKey: ["connections"],
+    queryFn: integrationsApi.getConnections,
+    enabled: !!user?.id,
+    staleTime: 60_000,
+  });
+  const hasConnected = connections.some((c) => c.status === "connected");
 
   return (
     <aside className="w-[260px] h-screen fixed top-0 left-0 border-r border-zinc-800 bg-[#0A0A0A] flex flex-col z-20">
@@ -83,6 +97,25 @@ export function Sidebar() {
           >
             <Plus size={16} />
             Create Agent
+          </button>
+
+          {/* Integrations — dedicated button with live status dot */}
+          <button
+            onClick={() => setIntegrationsOpen(true)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition-colors group"
+          >
+            <div className="flex items-center gap-3">
+              <Plug size={16} />
+              Integrations
+            </div>
+            {/* Status dot: green if at least one account connected */}
+            <div
+              className={clsx(
+                "w-2 h-2 rounded-full transition-colors",
+                hasConnected ? "bg-emerald-500" : "bg-zinc-700 group-hover:bg-zinc-500",
+              )}
+              title={hasConnected ? "Account connected" : "No account connected"}
+            />
           </button>
         </div>
 

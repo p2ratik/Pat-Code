@@ -50,7 +50,7 @@ export function ConfigurationPanel({
   const provider = isTool ? PROVIDER_FOR_TOOL[selectedNode?.data?.name] : undefined;
   const connection = provider ? connections.find(c => c.provider === provider) : undefined;
   const isConnected = connection?.status === "connected";
-  const connectedEmail = connection ? (connection as any).email ?? null : null;
+  const connectedEmail = connection?.email ?? null;
 
   // Listen for OAuth popup result and refresh connections.
   useEffect(() => {

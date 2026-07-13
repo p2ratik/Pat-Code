@@ -87,6 +87,27 @@ class AuthService:
                 "roles": roles,
             }
 
+    async def get_user_by_email(self, email: str) -> dict | None:
+        """Look up a user by their unique email address. Returns None if not found."""
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                select(User).where(User.email == email)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return None
+
+            roles = await self.get_user_roles(str(user.id))
+
+            return {
+                "id": str(user.id),
+                "email": user.email,
+                "display_name": user.display_name,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat(),
+                "roles": roles,
+            }
+
     # Roles Layer
     async def get_user_roles(self, user_id: str) -> list[str]:
         async with self.db.get_session() as session:

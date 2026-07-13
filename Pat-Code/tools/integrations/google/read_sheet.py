@@ -26,7 +26,7 @@ class ReadGoogleSheetTool(OAuthTool):
         "Provide the spreadsheet_id (from the URL) and an A1-notation range like 'Sheet1!A1:C10'."
     )
     provider_name = "google"
-    required_scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    required_scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     schema = ReadSheetParams
 
     def __init__(self, config: Config):

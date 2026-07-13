@@ -10,6 +10,7 @@ export interface UserConnection {
   provider: string;             // matches backend IntegrationConnectionResponse
   display_name: string;
   status: string;               // "connected" | "disconnected"
+  email: string | null;         // Google account email used for this connection
   connected_at: string | null;
   last_used_at: string | null;
 }

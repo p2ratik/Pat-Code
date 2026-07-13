@@ -99,20 +99,26 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/oauth/callback", response_model=OAuthCallbackResponse)
+@router.get("/oauth/callback")
 async def oauth_callback_get(
     request: Request,
     code: str = Query(...),
     state: str = Query(...),
 ):
-    """Google's browser redirect lands here with ?code=&state= as GET query params."""
-    conn_mgr = request.app.state.connection_manager
-    # Reconstruct the redirect_uri from the incoming request so it matches what was sent.
-    redirect_uri = str(request.url).split("?")[0]
-    try:
-        return await conn_mgr.handle_callback(code, state, redirect_uri)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Google redirects the browser here — forward to the frontend popup page.
+
+    The frontend callback page (/integrations/callback) is the one registered
+    as the redirect_uri in Google Cloud Console. If Google ever hits the backend
+    URL instead, we just redirect the browser to the correct frontend page so
+    the popup's page.tsx can POST the code+state to the backend as designed.
+    """
+    import os
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(
+        url=f"{frontend_url}/integrations/callback?code={code}&state={state}",
+        status_code=302,
+    )
 
 @router.post("/oauth/upgrade", response_model=ScopeUpgradeResponse)
 async def upgrade_scopes(
