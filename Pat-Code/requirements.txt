@@ -22,3 +22,8 @@ openai>=1.0.0
 # pydantic (bundled with FastAPI)
 # python-dotenv (if you load .env files)
 python-dotenv>=1.0.0
+
+# repo_intel dependencies
+pathspec>=0.12.0       # .gitignore-aware file discovery
+rank-bm25>=0.2.2       # BM25 search over entities
+networkx>=3.0          # typed-edge graph (already installed transitively)

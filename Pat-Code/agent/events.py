@@ -3,7 +3,6 @@ from typing import Any
 from enum import Enum
 from client.response import TokenUsage
 from dataclasses import dataclass
-
 from tools.base import ExecutionResult
 
 
@@ -11,7 +10,7 @@ class AgentEventType(str, Enum):
     AGENT_START = "agent_start"
     AGENT_END = "agent_end"
     AGENT_ERROR = "agent_error"
-
+ 
     TEXT_DELTA = "text_delta"
     TEXT_COMPLETE = "text_complete"
 

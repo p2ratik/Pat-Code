@@ -5,7 +5,7 @@ from tools.base import Tool, ToolInvocation, ToolResult
 from tools.builtins import ReadFileTool, get_all_builtin_tools
 import logging
 from safety.approval import ApprovalContext, ApprovalDecision, ApprovalManager
-from tools.subagents import SubagentTool, get_default_subagent_definitions
+from tools.subagents import SubagentTool, get_default_subagent_definitions, make_parallel_subagents_tool
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +151,11 @@ def create_default_registry(config: Config) -> ToolRegistry:
         registry.register(tool_class(config))
 
     # Adding default subagents
-    for subagent_def in get_default_subagent_definitions():
+    default_defs = get_default_subagent_definitions()
+    for subagent_def in default_defs:
         registry.register(SubagentTool(config, subagent_def))
+
+    registry.register(make_parallel_subagents_tool(config, default_defs))
 
     # Adding user created subagents
     if config.user_subagents:

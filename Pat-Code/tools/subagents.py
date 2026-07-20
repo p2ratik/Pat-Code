@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 from tools.base import Tool, ToolInvocation, ToolResult, Toolkind
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
+from typing import Callable
 
 if TYPE_CHECKING:
     from config.config import Config
@@ -219,3 +220,67 @@ def get_default_subagent_definitions() -> list[SubagentDefinition]:
         REGRESSION_HUNTER,
         ARCHITECTURE_MAPPER,
     ]
+
+
+class ParallelGoal(BaseModel):
+    agent: str = Field(..., description="Name of the subagent (e.g. 'codebase_investigator')")
+    goal: str = Field(..., description="The specific task for this subagent")
+
+
+class ParallelSubagentsParams(BaseModel):
+    goals: list[ParallelGoal] = Field(
+        ...,
+        description="List of (agent, goal) pairs to run concurrently. All must be read-only subagents.",
+    )
+
+
+class ParallelSubagentsTool(Tool):
+    """Scatter-gather tool: fans out multiple subagent goals in parallel, collects results."""
+
+    name = "parallel_subagents"
+    description = (
+        "Run multiple read-only subagents concurrently and return all results. "
+        "Use when you need independent investigations that don't depend on each other. "
+        "Each entry specifies which subagent to use and what goal to give it."
+    )
+    kind = Toolkind.MCP
+    schema = ParallelSubagentsParams
+    requires_semantic_verification = False
+
+    def __init__(self, config: "Config", subagent_factory: "Callable[[str], SubagentTool | None]"):
+        super().__init__(config)
+        self._factory = subagent_factory
+
+    def is_mutating(self, params: dict[str, Any]) -> bool:
+        return False
+
+    async def _run_one(self, agent_name: str, goal: str) -> tuple[str, str]:
+        tool = self._factory(agent_name)
+        if tool is None:
+            return agent_name, f"Error: unknown subagent '{agent_name}'"
+        invocation = ToolInvocation(params={"goal": goal}, cwd=self.config.cwd, session=None)
+        result = await tool.execute(invocation)
+        return agent_name, result.to_model_output()
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        params = ParallelSubagentsParams(**invocation.params)
+        if not params.goals:
+            return ToolResult.error_result("No goals provided to parallel_subagents")
+
+        tasks = [self._run_one(g.agent, g.goal) for g in params.goals]
+        outcomes: list[tuple[str, str]] = await asyncio.gather(*tasks, return_exceptions=False)
+
+        sections = [
+            f"### {name}\n{output}" for name, output in outcomes
+        ]
+        return ToolResult.success_result("\n\n".join(sections))
+
+
+def make_parallel_subagents_tool(
+    config: "Config",
+    definitions: list[SubagentDefinition],
+) -> ParallelSubagentsTool:
+    registry: dict[str, SubagentTool] = {
+        d.name: SubagentTool(config, d) for d in definitions
+    }
+    return ParallelSubagentsTool(config, registry.get)

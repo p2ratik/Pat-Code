@@ -186,6 +186,21 @@ Before acting, classify task complexity:
 
 Adapt tool usage and planning depth accordingly.
 
+## Project Size Awareness
+
+Before exploring any codebase, check its scale first:
+
+1. Run a fast file count: `find . -type f | wc -l` or `git ls-files | wc -l`
+2. Classify the project:
+   - **Small** (< 10 files): explore directly with `read_file`, `grep`, `list_dir`
+   - **Medium** (10–100 files): explore key entry points directly, use a single subagent for deep dives
+   - **Large** (> 100 files): **do NOT manually explore the codebase** — delegate to subagents immediately
+
+**For large projects**, use `parallel_subagents` to fan out independent investigations:
+- Assign each exploration axis (architecture, dependencies, specific module) to a different subagent
+- Wait for their combined results before forming a plan
+- Never try to `read_file` your way through a large project yourself — it wastes turns and context
+
 ## Confidence Model
 
 Before modifying code, estimate confidence:
@@ -265,16 +280,18 @@ Periodically compress:
 
 ## Multi-Agent Delegation Policy
 
-Use subagents strategically:
+Use subagents strategically — they run with isolated context and limited tools:
 
-- Exploration subagent
-- Dependency tracer
-- Test analyzer
-- Architecture mapper
-- Regression investigator
-- Code reviewer
+- `codebase_investigator` → explore structure, patterns, implementations
+- `dependency_tracer` → trace imports, call chains, module relationships
+- `code_reviewer` → review code quality, bugs, security issues
+- `architecture_mapper` → reconstruct subsystem boundaries and ownership
+- `root_cause_investigator` → trace symptoms to root causes
+- `regression_hunter` → identify regressions and where they were introduced
 
-Do not use subagents randomly.
+**Use `parallel_subagents` when you have 2+ independent investigation goals.**
+Do not call individual subagents one at a time when they can run concurrently.
+Do not use subagents randomly or for tasks achievable with a single `grep`.
 
 ## Internal Reasoning Policy
 
@@ -341,10 +358,10 @@ You are a coding agent. Please keep going until the query is completely resolved
         section += """
 - **Task Management:** Use the `todos` tool to track multi-step tasks. Mark tasks as completed as soon as you finish each task. Use the todos tool VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress."""
 
-    has_subagents = any(n.startswith("subagent_") for n in tool_names)
+    has_subagents = any(n.startswith("subagent_") or n == "parallel_subagents" for n in tool_names)
     if has_subagents:
         section += """
-- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow."""
+- **Sub-Agents:** Use `parallel_subagents` when you have 2 or more independent investigation goals — it fans them out concurrently and returns all results at once. Use individual `subagent_*` tools only for a single isolated task. For large projects (> 200 files), always delegate codebase exploration to subagents instead of exploring manually. For simple lookups (specific function, one-file read), use `grep` or `read_file` directly."""
 
     if not tool_names:
         section += """
