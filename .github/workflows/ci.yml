@@ -48,9 +48,7 @@ jobs:
           API_KEY: "ci-fake-key-not-real"
           BASE_URL: "http://localhost:11434/v1"
 
-  # --------------------------------------------------------------------------
-  # Build check — ensure the package builds cleanly before publishing
-  # --------------------------------------------------------------------------
+ 
   build:
     name: Build distribution
     runs-on: ubuntu-latest
@@ -78,11 +76,7 @@ jobs:
           name: dist
           path: dist/
 
-  # --------------------------------------------------------------------------
-  # Publish to PyPI — only runs when a GitHub Release is published
-  # To publish: go to GitHub → Releases → Draft a new release → Publish
-  # Make sure PYPI_API_TOKEN is set in: Settings → Secrets → Actions
-  # --------------------------------------------------------------------------
+
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest

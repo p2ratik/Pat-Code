@@ -93,6 +93,10 @@ class TUI:
             "glob": ["path", "pattern"],
             "todos": ["id", "action", "content"],
             "memory": ["action", "key", "value"],
+            # repo_intel tools
+            "search_entity":   ["keyword", "top_k"],
+            "traverse_graph":  ["start_ids", "direction", "hops", "edge_types", "node_types"],
+            "retrieve_entity": ["entity_id"],
         }
 
         preferred = _PREFERRED_ORDER.get(tool_name, [])
@@ -514,6 +518,72 @@ class TUI:
                     "text",
                     theme="monokai",
                     word_wrap=True,
+                )
+            )
+        elif name == "search_entity" and success:
+            hits  = metadata.get("hits")
+            tier  = metadata.get("tier")
+            kw    = args.get("keyword", "")
+            summary = []
+            if kw:
+                summary.append(f'"{kw}"')
+            if isinstance(hits, int):
+                summary.append(f"{hits} hit{'s' if hits != 1 else ''}")
+            if isinstance(tier, str):
+                summary.append(f"tier:{tier}")
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            blocks.append(
+                Syntax(output_display, "text", theme="monokai", word_wrap=True)
+            )
+        elif name == "traverse_graph" and success:
+            nodes   = metadata.get("nodes_found")
+            edges   = metadata.get("edges_found")
+            direction = metadata.get("direction", "out")
+            hops    = metadata.get("hops")
+            summary = []
+            if isinstance(nodes, int):
+                summary.append(f"{nodes} node{'s' if nodes != 1 else ''}")
+            if isinstance(edges, int):
+                summary.append(f"{edges} edge{'s' if edges != 1 else ''}")
+            if direction:
+                summary.append(f"direction:{direction}")
+            if isinstance(hops, int):
+                summary.append(f"hops:{hops}")
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            blocks.append(
+                Syntax(output_display, "text", theme="monokai", word_wrap=False)
+            )
+        elif name == "retrieve_entity" and success:
+            entity_id = metadata.get("entity_id", args.get("entity_id", ""))
+            found     = metadata.get("found", True)
+            lines_count = metadata.get("lines")
+            summary = []
+            if entity_id:
+                summary.append(entity_id)
+            if isinstance(lines_count, int):
+                summary.append(f"{lines_count} line{'s' if lines_count != 1 else ''}")
+            if not found:
+                summary.append("not found")
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+            # Detect language from the entity_id path component
+            path_part = entity_id.split(":")[0] if ":" in entity_id else ""
+            lang = self._guess_language(path_part)
+            output_display = truncate_text(
+                output, self.config.model_name, self._max_block_tokens
+            )
+            blocks.append(
+                Syntax(
+                    output_display, lang, theme="monokai",
+                    line_numbers=False, word_wrap=False,
                 )
             )
         else:

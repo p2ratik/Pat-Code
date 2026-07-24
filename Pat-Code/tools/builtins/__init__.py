@@ -10,6 +10,9 @@ from tools.builtins.web_fetch import WebFetchTool
 from tools.builtins.web_search import WebSearchTool
 from tools.builtins.write_file import WriteFileTool
 from apply_patch import ApplyPatchTool
+from tools.builtins.search_entity import SearchEntityTool
+from tools.builtins.traverse_graph import TraverseGraphTool
+from tools.builtins.retrieve_entity import RetrieveEntityTool
 
 __all__ = [
     "ReadFileTool",
@@ -24,6 +27,9 @@ __all__ = [
     "TodosTool",
     "MemoryTool",
     "ApplyPatchTool",
+    "SearchEntityTool",
+    "TraverseGraphTool",
+    "RetrieveEntityTool",
 ]
 
 
@@ -41,4 +47,7 @@ def get_all_builtin_tools() -> list[type]:
         TodosTool,
         MemoryTool,
         ApplyPatchTool,
+        SearchEntityTool,
+        TraverseGraphTool,
+        RetrieveEntityTool,
     ]

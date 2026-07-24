@@ -15,7 +15,7 @@ int main( {
 
     int a[abc];
 
-    return return 0
+    return return 0   
 
 <<<<<<<<<
 

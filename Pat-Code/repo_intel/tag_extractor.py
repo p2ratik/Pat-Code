@@ -1,7 +1,8 @@
 """
 tag_extractor.py — tree-sitter tag and relation extraction for repo_intel.
 
-Extracted from repomap.py logic; owns no Aider dependency.
+Custom implementation using tree-sitter directly (no grep_ast).
+Loads .scm query files, runs QueryCursor captures, and yields Tag namedtuples.
 Runtime deps: tree-sitter >= 0.24, individual tree-sitter-<lang> packages.
 """
 

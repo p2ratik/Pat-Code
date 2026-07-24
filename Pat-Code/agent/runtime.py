@@ -39,6 +39,8 @@ class AgentRuntime(Protocol):
 
     # --- optional persistence (NoOpDBManager for cloud) ---
     db_manager: Any
+    # --- optional repo intelligence (None until first tool call) ---
+    _repo_intel: Any
 
     def increment_turn(self) -> int: ...
 

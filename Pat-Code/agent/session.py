@@ -2,23 +2,24 @@ from datetime import datetime
 import json
 from typing import Any
 import uuid
+
 from agent.execution_engine import ExecutionEngine
 from agent.hooks import VerificationHook, RetryHook, SemanticVerificationHook, OutputProcessingHook
 from client.llm_client import LLMClient
 from config.config import Config
 from config.loader import get_data_dir
 from context.compaction import ChatCompactor
-# from context.loop_detector import LoopDetector
 from context.manager import ContextManager
-# from hooks.hook_system import HookSystem
 from safety.approval import ApprovalManager
 from tools.discovery import ToolDiscoveryManager
 from tools.mcp.mcp_manager import MCPManager
 from tools.registry import create_default_registry
 from db.database import DataBaseManager
 from vector_store.memory_manager import FaissMemoryStore
+from repo_intel.intelligence import RepoIntelligence
 
-# Every session will have its own context , memory , tools , mcps and all 
+
+# Every session will have its own context, memory, tools, mcps and all
 class Session:
     def __init__(self, config=Config, enable_memory: bool = True):
         self.config = config
@@ -33,25 +34,36 @@ class Session:
                 OutputProcessingHook(),
             ],
         )
-        self.context_manager: ContextManager | None 
+        self.context_manager: ContextManager | None
         self.discovery_manager = ToolDiscoveryManager(
             self.config,
             self.tool_registry,
-        )       
-        self.mcp_manager = MCPManager(self.config)   
-        self.chat_compactor = ChatCompactor(self.client)             
+        )
+        self.mcp_manager = MCPManager(self.config)
+        self.chat_compactor = ChatCompactor(self.client)
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.approval_manager = ApprovalManager(
             self.config.approval,
             self.config.cwd,
-        )        
-        self.turn_count = 0     
+        )
+        self.turn_count = 0
         self.db_manager = DataBaseManager()
         # Only load the FAISS + HuggingFace embedding model when actually needed.
         # The API service sets enable_memory=False to skip this entirely.
         self.memory_manager = FaissMemoryStore() if enable_memory else None
+        self._repo_intel: RepoIntelligence | None = None
+
+    def get_repo_intel(self) -> RepoIntelligence:
+        """Return the session-scoped RepoIntelligence, creating it on first call."""
+        if self._repo_intel is None:
+            db_path = get_data_dir() / "repo_intel.db"
+            self._repo_intel = RepoIntelligence(
+                root=self.config.cwd,
+                db_path=db_path,
+            )
+        return self._repo_intel
 
     async def initialize(self) -> None:
         await self.mcp_manager.initialize()
@@ -68,7 +80,6 @@ class Session:
         await self.client.close()
         await self.mcp_manager.shutdown()
 
-        
     def _load_memory(self) -> str | None:
         data_dir = get_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -95,7 +106,6 @@ class Session:
     def increment_turn(self) -> int:
         self.turn_count += 1
         self.updated_at = datetime.now()
-
         return self.turn_count
 
     def get_stats(self) -> dict[str, Any]:
@@ -107,4 +117,4 @@ class Session:
             "token_usage": self.context_manager.total_usage,
             "tools_count": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
-        }    
+        }
