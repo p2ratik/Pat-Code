@@ -9,6 +9,7 @@ from agent.hooks.verification import VerificationHook
 from agent.hooks.retry import RetryHook
 from agent.hooks.semantic import SemanticVerificationHook
 from agent.hooks.output_processing import OutputProcessingHook
+from agent.hooks.repo_intel_sync import RepoIntelSyncHook
 
 __all__ = [
     "ExecutionHook",
@@ -20,4 +21,5 @@ __all__ = [
     "RetryHook",
     "SemanticVerificationHook",
     "OutputProcessingHook",
+    "RepoIntelSyncHook",
 ]

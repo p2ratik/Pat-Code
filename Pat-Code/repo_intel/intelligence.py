@@ -30,12 +30,16 @@ class RepoIntelligence:
         self._persistence = Persistence(db_path)
         self._record_index: dict[str, EntityRecord] = {}  # entity_id → record
         self._ready = False
+        self._search_dirty = False
 
     # ── public API ────────────────────────────────────────────────────────────
 
     def search_entity(self, keyword: str, top_k: int = 50) -> SearchResult:
         """Search for entities matching keyword; returns a tiered SearchResult."""
         self._ensure_ready()
+        if self._search_dirty:
+            self._search.rebuild(list(self._record_index.values()))
+            self._search_dirty = False
         return self._search.search(keyword, top_k)
 
     def traverse_graph(
@@ -127,7 +131,7 @@ class RepoIntelligence:
             self._index_file(str(path), rel)
 
         if changed or (set(stored_hashes) - set(disk_files)):
-            self._search.rebuild(list(self._record_index.values()))
+            self._search_dirty = True
             logging.debug("intelligence: re-indexed %d file(s)", len(changed))
 
     # ── per-file index/remove ─────────────────────────────────────────────────

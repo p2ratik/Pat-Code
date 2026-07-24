@@ -439,12 +439,30 @@ class ApplyPatchTool(Tool):
             results.append(result)
 
         prefix = "[DRY RUN] " if params.dry_run else ""
+
+        changes: list[dict] = []
+        if not params.dry_run:
+            for op in parsed.operations:
+                if op.action == PatchAction.CREATE:
+                    changes.append({"path": str(op.path), "op": "create"})
+                elif op.action == PatchAction.UPDATE:
+                    changes.append({"path": str(op.path), "op": "update"})
+                elif op.action == PatchAction.DELETE:
+                    changes.append({"path": str(op.path), "op": "delete"})
+                elif op.action == PatchAction.RENAME:
+                    changes.append({
+                        "path": str(op.path),
+                        "op": "rename",
+                        "old_path": str(op.move_path),
+                    })
+
         return ToolResult.success_result(
             f"{prefix}Applied patch with {len(parsed.operations)} operation(s):\n"
             + "\n".join(f"- {r}" for r in results),
             metadata={
                 "operations": len(parsed.operations),
                 "dry_run": params.dry_run,
+                "changes": changes,
             },
         )
 

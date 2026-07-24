@@ -4,7 +4,7 @@ from typing import Any
 import uuid
 
 from agent.execution_engine import ExecutionEngine
-from agent.hooks import VerificationHook, RetryHook, SemanticVerificationHook, OutputProcessingHook
+from agent.hooks import VerificationHook, RetryHook, SemanticVerificationHook, OutputProcessingHook, RepoIntelSyncHook
 from client.llm_client import LLMClient
 from config.config import Config
 from config.loader import get_data_dir
@@ -32,6 +32,7 @@ class Session:
                 SemanticVerificationHook(self.client),
                 RetryHook(),
                 OutputProcessingHook(),
+                RepoIntelSyncHook(),
             ],
         )
         self.context_manager: ContextManager | None
