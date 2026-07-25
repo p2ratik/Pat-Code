@@ -112,7 +112,7 @@ class Persistence:
                     (rel_fname, content_hash),
                 )
                 self._conn.executemany(
-                    "INSERT INTO nodes VALUES (?,?,?,?,?,?,?)",
+                    "INSERT OR REPLACE INTO nodes VALUES (?,?,?,?,?,?,?)",
                     [
                         (r.entity_id, r.rel_fname, r.fname, r.kind,
                          r.start_line, r.end_line, r.content_hash)

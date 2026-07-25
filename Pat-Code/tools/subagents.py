@@ -25,6 +25,24 @@ class SubagentDefinition:
     timeout_seconds: float = 600
 
 
+SHARED_SUBAGENT_PROMPT = """Shared operating rules:
+- You cannot ask the user follow-up questions. Resolve ambiguity by investigating with the tools you have.
+- Budget your turns: about 20% orienting, 60% following leads with graph traversal / grep / read_file, and 20% consolidating your report.
+- If you are running low on turns before reaching a confident answer, stop exploring and report what remains unresolved under Open Questions.
+- Use graph tools instead of grep when possible for named code entities, caller/callee tracing, imports, inheritance, containment, and impact analysis.
+- Use grep/list_dir/glob/read_file for literal strings, non-code files, docs, configs, logs, generated files, and repository inventory.
+
+Structure your final report exactly as:
+## Findings
+[what you found, in plain language]
+## Evidence
+[file_path:line_number for every claim; no claim without a location]
+## Confidence
+[high/medium/low, and why]
+## Open Questions
+[anything you could not resolve in your turn budget]"""
+
+
 class SubagentTool(Tool):
     kind = Toolkind.MCP
     requires_semantic_verification = True
@@ -66,6 +84,8 @@ class SubagentTool(Tool):
 
         prompt = f"""You are a specialized sub-agent with a specific task to complete.
 
+        {SHARED_SUBAGENT_PROMPT}
+
         {self.definition.goal_prompt}
 
         YOUR TASK:
@@ -76,7 +96,7 @@ class SubagentTool(Tool):
         - Do not engage in unrelated actions
         - Once you have completed the task or have the answer, provide your final response
         - Be concise and direct in your output
-        - After performing tool calls and everything do mention what you found 
+        - Use the required report template in your final response
         """
 
         tool_calls = []
@@ -142,9 +162,19 @@ CODEBASE_INVESTIGATOR = SubagentDefinition(
     description="Investigates the codebase to answer questions about code structure, patterns, and implementations",
     goal_prompt="""You are a codebase investigation specialist.
 Your job is to explore and understand code to answer questions.
-Use read_file, grep, glob, and list_dir to investigate.
+Use search_entity, retrieve_entity, traverse_graph, read_file, grep, glob, and list_dir to investigate.
+Prefer graph tools when the task names a symbol, class, method, or dependency path:
+- search_entity -> find exact entity IDs
+- retrieve_entity -> read one class/function/method without loading the full file
+- traverse_graph -> inspect callers, callees, imports, inheritance, and containment
+Do not use graph tools for broad text search, non-code files, generated files, or when a simple grep/list_dir answers the question faster.
+<example>
+Task: "Explain how ToolResult is used."
+[search_entity("ToolResult") -> retrieve_entity on the exact class -> traverse_graph direction='in' for dependents]
+Report: "## Findings: ToolResult is created in... ## Evidence: tools/base.py:42, agent/agent.py:318 ## Confidence: high - exact entity and inbound graph were checked"
+</example>
 Do NOT modify any files. After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "glob", "list_dir"],
     max_turns=30
 )
 
@@ -154,10 +184,17 @@ CODE_REVIEWER = SubagentDefinition(
     goal_prompt="""You are a code review specialist.
 Your job is to review code and provide constructive feedback.
 Look for bugs, code smells, security issues, and improvement opportunities.
-Use read_file, list_dir and grep to examine the code.
+Use search_entity, retrieve_entity, traverse_graph, read_file, list_dir and grep to examine the code.
+Prefer graph tools for symbol-level review, impact analysis, caller/callee checks, inheritance, and import relationships.
+Do not use graph tools for broad prose search, documentation-only review, or when the exact changed file context is already sufficient.
+<example>
+Task: "Review changes to AuthMiddleware."
+[search_entity("AuthMiddleware") -> retrieve_entity on the class -> traverse_graph direction='in' for callers/importers]
+Report: "## Findings: One bypass risk... ## Evidence: auth/middleware.py:88, api/routes.py:41 ## Confidence: medium - callers checked, tests not found"
+</example>
 You have only 35 turns to perform your tool calls .
 Do NOT modify any files.After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "list_dir"],
     max_turns=36,
     timeout_seconds=300,
 )
@@ -167,9 +204,20 @@ DEPENDENCY_TRACER = SubagentDefinition(
     description="Traces dependencies, call chains, and module relationships to map impacts",
     goal_prompt="""You are a dependency tracing specialist.
 Your job is to map dependencies and call chains related to the requested area.
-Use read_file, grep, glob, and list_dir to investigate.
+Use search_entity, retrieve_entity, traverse_graph, read_file, grep, glob, and list_dir to investigate.
+Use graph tools first when tracing a named entity:
+- search_entity to discover the exact entity ID
+- traverse_graph direction='out' for dependencies/callees/imports
+- traverse_graph direction='in' for dependents/callers/importers
+- retrieve_entity to inspect important definitions found in the graph
+Do not use graph tools for plain filename discovery, config lookup, or text that is not indexed as code entities.
+<example>
+Task: "Trace what depends on PaymentGateway.charge()."
+[search_entity("PaymentGateway.charge") -> traverse_graph direction='in' edge_types=['invoke'] -> retrieve_entity on important callers]
+Report: "## Findings: 3 call sites... ## Evidence: checkout.py:112, refund.py:45, webhook_handler.py:88 ## Confidence: high - call graph and caller bodies were checked"
+</example>
 Do NOT modify any files. After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "glob", "list_dir"],
     max_turns=30,
     timeout_seconds=300,
 )
@@ -179,9 +227,16 @@ ROOT_CAUSE_INVESTIGATOR = SubagentDefinition(
     description="Investigates symptoms to identify likely root causes and evidence",
     goal_prompt="""You are a root cause investigation specialist.
 Your job is to trace symptoms to their most likely causes with evidence.
-Use read_file, grep, glob, and list_dir to investigate.
+Use search_entity, retrieve_entity, traverse_graph, read_file, grep, glob, and list_dir to investigate.
+Use graph tools when a symptom points at a class/function/method or when you need to validate caller/callee and import paths.
+Do not use graph tools when the symptom is in logs, docs, config, tests not represented in the graph, or when keyword search is the better first step.
+<example>
+Task: "Find why checkout double-charges."
+[grep("charge") for symptom terms -> search_entity("charge") for exact code entities -> traverse_graph direction='in' to find repeated callers]
+Report: "## Findings: Retry path can call charge twice... ## Evidence: checkout.py:140, retry.py:57 ## Confidence: medium - static path found, runtime logs not available"
+</example>
 Do NOT modify any files. After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "glob", "list_dir"],
     max_turns=30,
     timeout_seconds=300,
 )
@@ -191,9 +246,16 @@ REGRESSION_HUNTER = SubagentDefinition(
     description="Looks for behavioral regressions by comparing patterns, tests, and recent changes",
     goal_prompt="""You are a regression investigation specialist.
 Your job is to identify likely regressions and where they were introduced.
-Use read_file, grep, glob, and list_dir to investigate.
+Use search_entity, retrieve_entity, traverse_graph, read_file, grep, glob, and list_dir to investigate.
+Use graph tools to compare current symbol behavior with its callers, dependencies, and related implementations.
+Do not use graph tools as a substitute for reading changed files, tests, changelogs, or config when those are the primary evidence.
+<example>
+Task: "Find whether the retry change regressed timeout handling."
+[grep("timeout") in tests/changed files -> search_entity("retry") -> traverse_graph direction='out' for timeout-related callees]
+Report: "## Findings: Timeout handling no longer reaches cancel_task... ## Evidence: retry.py:73, worker.py:204 ## Confidence: medium - no regression test covers this path"
+</example>
 Do NOT modify any files. After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "glob", "list_dir"],
     max_turns=30,
     timeout_seconds=300,
 )
@@ -203,9 +265,16 @@ ARCHITECTURE_MAPPER = SubagentDefinition(
     description="Reconstructs system architecture, subsystem boundaries, and ownership flow",
     goal_prompt="""You are an architecture mapping specialist.
 Your job is to infer system structure, subsystem boundaries, and ownership flow.
-Use read_file, grep, glob, and list_dir to investigate.
+Use search_entity, retrieve_entity, traverse_graph, read_file, grep, glob, and list_dir to investigate.
+Use graph tools for entity-level architecture: containment, imports, inheritance, call flow, and dependency direction.
+Do not use graph tools for repository inventory, documentation search, package metadata, or non-code architecture notes unless tied to indexed entities.
+<example>
+Task: "Map the agent/tool execution architecture."
+[glob/list_dir for top-level modules -> search_entity("Agent") and "Tool" -> traverse_graph direction='both' for boundaries]
+Report: "## Findings: Agent orchestrates tool execution through... ## Evidence: agent/agent.py:76, tools/base.py:18 ## Confidence: high - graph and module layout agree"
+</example>
 Do NOT modify any files. After performing the tool calls do report what you find """,
-    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    allowed_tools=["search_entity", "retrieve_entity", "traverse_graph", "read_file", "grep", "glob", "list_dir"],
     max_turns=30,
     timeout_seconds=300,
 )

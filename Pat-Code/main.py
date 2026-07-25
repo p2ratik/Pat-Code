@@ -37,7 +37,7 @@ class CLI:
         async with Agent(self.config) as agent:
             self.tui.print_welcome(
                 title="PAT",
-                version="0.0.1",
+                version="2.0.1",
                 cwd=self.config.cwd,
                 model=self.config.model_name,
             )

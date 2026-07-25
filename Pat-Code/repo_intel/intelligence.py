@@ -127,12 +127,22 @@ class RepoIntelligence:
             for rel, path in disk_files.items()
             if file_hash(path) != stored_hashes.get(rel)
         ]
+        failed = 0
         for rel, path in changed:
-            self._index_file(str(path), rel)
+            try:
+                self._index_file(str(path), rel)
+            except Exception as exc:
+                failed += 1
+                logging.warning(
+                    "intelligence: skipping %s — indexing failed: %s", rel, exc
+                )
 
         if changed or (set(stored_hashes) - set(disk_files)):
             self._search_dirty = True
-            logging.debug("intelligence: re-indexed %d file(s)", len(changed))
+            logging.debug(
+                "intelligence: re-indexed %d file(s), %d skipped",
+                len(changed) - failed, failed,
+            )
 
     # ── per-file index/remove ─────────────────────────────────────────────────
 

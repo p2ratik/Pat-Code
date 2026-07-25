@@ -118,4 +118,26 @@ def index_file(fname: str, rel_fname: str) -> list[EntityRecord]:
         if tag.line in class_lines:
             scope_stack.append(_ScopeFrame(name=tag.name, end_line=tag.end_line))
 
-    return records
+    return _dedup_records(records)
+
+
+def _dedup_records(records: list[EntityRecord]) -> list[EntityRecord]:
+    """Drop records with duplicate entity_ids (e.g. property getter + setter).
+
+    tree-sitter captures both the @property and the @X.setter as
+    name.definition.function with the same name, producing identical entity_ids.
+    We keep the first occurrence (the getter / original definition).
+    """
+    seen: set[str] = set()
+    deduped: list[EntityRecord] = []
+    for rec in records:
+        if rec.entity_id in seen:
+            import logging as _logging
+            _logging.debug(
+                "entity_index: dropping duplicate entity_id %s (line %d)",
+                rec.entity_id, rec.start_line,
+            )
+            continue
+        seen.add(rec.entity_id)
+        deduped.append(rec)
+    return deduped
