@@ -5,6 +5,7 @@ from client.llm_client import LLMClient
 from agent.agent import Agent
 from agent.events import AgentEventType
 from ui.tui1 import TUI, get_console
+from ui.prompt_input import PatPromptSession, PROMPT_MESSAGE
 from config.config import ApprovalPolicy, Config
 from config.loader import load_config
 from config.credentials import (
@@ -25,6 +26,8 @@ class CLI:
         self.agent : Agent | None = None
         self.config = config
         self.tui = TUI(console, config)
+        # prompt_toolkit session — created once, reused for every prompt
+        self._session = PatPromptSession(config)
 
             
     async def run_single(self, message):
@@ -45,7 +48,14 @@ class CLI:
 
             while True:
                 try:
-                    user_input = console.input("\n[user]>[/user] ").strip()
+                    # prompt_toolkit handles rendering the prompt + completions;
+                    # Rich still owns all output above the input line.
+                    raw = await self._session.prompt_async(
+                        PROMPT_MESSAGE,
+                        # Refresh the bottom toolbar on every prompt
+                        refresh_interval=0.5,
+                    )
+                    user_input = raw.strip() if raw else ""
                     if not user_input:
                         continue
 
@@ -57,7 +67,7 @@ class CLI:
 
                     await self._process_message(user_input)
                 except KeyboardInterrupt:
-                    console.print("\n[dim]Use /exit to quit[/dim]")
+                    console.print("\n[dim]Interrupted — type /exit to quit[/dim]")
                 except EOFError:
                     break
 
@@ -276,34 +286,36 @@ class CLI:
 
         return True
     
-    # Runs only once .
-    async def _process_message(self, message : str | None = None):
-        
+    async def _process_message(self, message: str | None = None):
         if not self.agent:
             return None
         assistant_stream = False
         final_response = ""
 
         async for event in self.agent.run(message=message):
-            
-            
+
             if event.type == AgentEventType.TEXT_DELTA:
                 if not assistant_stream:
                     self.tui.begin_assistant()
                     assistant_stream = True
-
-                content = event.data.get("content", "") 
+                content = event.data.get("content", "")
                 self.tui.stream_assistant_delta(content=content)
-
 
             elif event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content", "")
+                if not assistant_stream and final_response:
+                    # Provider sent no streaming deltas — feed the full text now.
+                    self.tui.begin_assistant()
+                    self.tui.stream_assistant_delta(content=final_response)
+                    assistant_stream = True
                 if assistant_stream:
                     self.tui.end_assistant()
-                    assistant_stream = False        
+                    assistant_stream = False
 
             elif event.type == AgentEventType.AGENT_ERROR:
-    
+                if assistant_stream:
+                    self.tui.end_assistant()
+                    assistant_stream = False
                 error = event.data.get("error", "")
                 console.print(f"\n[error]Agent error: {error}[/error]")
 

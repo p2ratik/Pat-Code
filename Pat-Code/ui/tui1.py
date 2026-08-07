@@ -538,7 +538,10 @@ class TUI:
         meta.add_row("model", model_name)
         meta.add_row("cwd", str(cwd))
 
-        hint = Text("Type a message and press Enter. Ctrl+C interrupts.", style="muted")
+        hint = Text(
+            "Type a message · Tab to complete /commands · Alt+Enter for newline · Ctrl+C interrupts",
+            style="muted",
+        )
         body = Group(
             Align.left(header),
             Text(""),

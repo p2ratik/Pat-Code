@@ -210,21 +210,19 @@ class Tool(abc.ABC):
             description = f"Exccute {self.name}"
         )
 
-    # The tool to be performing at its best it's description must be in a format . Thats called open ai schema
-
     def to_openai_schema(self) -> dict[str, Any]:
         schema = self.schema
 
         if isinstance(schema, type) and issubclass(schema, BaseModel):
-
             json_schema = model_json_schema(schema, mode="serialization")
-
+            defs = json_schema.get("$defs", {})
+            properties = _deref_schema(json_schema.get("properties", {}), defs)
             return {
                 "name": self.name,
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": json_schema.get("properties", {}),
+                    "properties": properties,
                     "required": json_schema.get("required", []),
                 },
             }
@@ -234,12 +232,30 @@ class Tool(abc.ABC):
                 "name": self.name,
                 "description": self.description,
             }
-
             if "parameters" in schema:
                 result["parameters"] = schema["parameters"]
             else:
                 result["parameters"] = schema
-
             return result
 
-        raise ValueError(f"Invalid schema type for tool {self.name}: {type(schema)}")  
+        raise ValueError(f"Invalid schema type for tool {self.name}: {type(schema)}")
+
+
+def _deref_schema(node: Any, defs: dict[str, Any], _seen: frozenset[str] = frozenset()) -> Any:
+    """Recursively inline all $ref/$defs so the schema is self-contained.
+
+    Providers like OpenRouter do not resolve $ref themselves, so we must
+    expand them before sending the schema over the wire.
+    """
+    if isinstance(node, dict):
+        if "$ref" in node:
+            ref: str = node["$ref"]
+            name = ref.split("/")[-1]
+            if name in _seen:
+                return {"type": "object"}
+            resolved = defs.get(name, {})
+            return _deref_schema(resolved, defs, _seen | {name})
+        return {k: _deref_schema(v, defs, _seen) for k, v in node.items() if k != "$defs"}
+    if isinstance(node, list):
+        return [_deref_schema(item, defs, _seen) for item in node]
+    return node
