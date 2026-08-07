@@ -1,103 +1,102 @@
 from pathlib import Path
 from typing import Any
-from rich.console import Console
-from rich.theme import Theme
-from rich.rule import Rule
-from rich.text import Text
-from rich.panel import Panel
-from rich.table import Table
+import re
+import shutil
+
 from rich import box
-from rich.prompt import Prompt
-from rich.console import Group
-from rich.syntax import Syntax
+from rich.align import Align
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.padding import Padding
-from rich.columns import Columns
-from rich.align import Align
+from rich.panel import Panel
+from rich.prompt import Prompt
+from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
+
 from config.config import Config
 from tools.base import ToolConfirmation
 from utils.paths import display_path_rel_to_cwd
 from utils.text import truncate_text
-import re
 
-# ── Theme ──────────────────────────────────────────────────────────────────────
-# Palette anchored to the green welcome screen — deep teal/emerald accents,
-# warm amber for "in-flight" state, and vivid green check for success.
-from rich.theme import Theme
 
-AGENT_THEME = Theme({
-    # Core semantics (muted, professional)
-    "info":      "#60a5fa",     # soft blue
-    "warning":   "#d97706",     # muted amber
-    "error":     "#b91c1c",     # deep red
-    "success":   "#059669",     # deep green
-    "muted":     "#6b7280",     # gray
-    "dim":       "dim",
-    "border":    "#374151",     # neutral border
-
-    # Roles
-    "user":      "#2563eb",
-    "assistant": "#e5e7eb",
-
-    # Tool states (ONLY place where color matters)
-    "tool.running": "#6b7280",
-    "tool.done":    "#059669",
-    "tool.failed":  "#b91c1c",
-
-    # Tool types → neutral (important change)
-    "tool":         "#9ca3af",
-    "tool.read":    "#9ca3af",
-    "tool.write":   "#9ca3af",
-    "tool.shell":   "#9ca3af",
-    "tool.network": "#9ca3af",
-    "tool.memory":  "#9ca3af",
-    "tool.mcp":     "#9ca3af",
-
-    # Code stays colorful (your requirement)
-    "code": "#d1d5db",
-
-    # Accent (used sparingly)
-    "accent": "#2563eb",
-})
-
-# Box styles
-_PANEL_BOX = box.ROUNDED
-_TABLE_BOX = box.SIMPLE_HEAD
+AGENT_THEME = Theme(
+    {
+        "info": "#7dd3fc",
+        "warning": "#f59e0b",
+        "error": "#ef4444 bold",
+        "success": "#34d399 bold",
+        "muted": "#7b8495",
+        "dim": "dim",
+        "border": "#334155",
+        "border.active": "#38bdf8",
+        "surface": "#e5e7eb",
+        "surface.soft": "#cbd5e1",
+        "accent": "#2dd4bf",
+        "accent.blue": "#60a5fa",
+        "user": "#93c5fd bold",
+        "assistant": "#f8fafc",
+        "tool": "#cbd5e1 bold",
+        "tool.read": "#94a3b8",
+        "tool.write": "#2dd4bf bold",
+        "tool.shell": "#a78bfa bold",
+        "tool.network": "#38bdf8 bold",
+        "tool.memory": "#34d399",
+        "tool.mcp": "#22d3ee",
+        "code": "#dbeafe",
+    }
+)
 
 _console: Console | None = None
+
+_QUIET_SUCCESS_TOOLS = {
+    "read_file",
+    "list_dir",
+    "grep",
+    "glob",
+    "search_entity",
+    "traverse_graph",
+    "retrieve_entity",
+}
+
+_VISIBLE_EDIT_TOOLS = {
+    "write_file",
+    "edit",
+    "apply_patch",
+    "patch",
+    "create_file",
+}
 
 
 def get_console() -> Console:
     global _console
     if _console is None:
-        _console = Console(theme=AGENT_THEME, highlight=False)
+        _console = Console(
+            theme=AGENT_THEME,
+            highlight=False,
+            soft_wrap=False,
+            legacy_windows=False,
+        )
     return _console
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _tool_icon(tool_kind: str | None) -> str:
-    return {
-        "read":    "○",
-        "write":   "◈",
-        "shell":   "❯",
-        "network": "◎",
-        "memory":  "◇",
-        "mcp":     "◉",
-    }.get(tool_kind or "", "◆")
+def _tool_border(tool_kind: str | None, name: str) -> str:
+    if name in _VISIBLE_EDIT_TOOLS:
+        return "tool.write"
+    if tool_kind:
+        return f"tool.{tool_kind}"
+    return "tool"
 
 
-def _tool_border(tool_kind: str | None) -> str:
-    return f"tool.{tool_kind}" if tool_kind else "tool"
+def _short_path(path: str | None, cwd: str | Path | None) -> str:
+    if not path:
+        return ""
+    if cwd:
+        return str(display_path_rel_to_cwd(path, cwd))
+    return str(path)
 
-
-def _divider(label: str = "", style: str = "border") -> Rule:
-    if label:
-        return Rule(Text(f" {label} ", style="muted"), style=style)
-    return Rule(style=style)
-
-
-# ── TUI ────────────────────────────────────────────────────────────────────────
 
 class TUI:
     def __init__(self, _console: Console, config: Config):
@@ -106,131 +105,125 @@ class TUI:
         self._max_block_tokens = 2500
         self.cwd = config.cwd
         self.config = config
-        # Buffer for streaming assistant text → rendered as Markdown at end
         self._stream_buffer: list[str] = []
 
-    # ── Streaming ─────────────────────────────────────────────────────────────
+    def _sync_console_size(self) -> None:
+        size = shutil.get_terminal_size(
+            fallback=(max(40, self.console.size.width), max(10, self.console.size.height))
+        )
+        self.console._width = max(40, size.columns)
+        self.console._height = max(10, size.lines)
 
-    def stream_assistant_delta(self, content: str) -> None:
-        """Buffer streamed deltas; we render as Markdown after stream ends."""
-        self._stream_buffer.append(content)
+    def _panel_width(self) -> int | None:
+        self._sync_console_size()
+        return None
+
+    def _rule(self, label: str = "", style: str = "border") -> Rule:
+        title = Text(f" {label} ", style="muted") if label else ""
+        return Rule(title, style=style, align="left")
 
     def begin_assistant(self) -> None:
+        self._sync_console_size()
         self._stream_buffer = []
         self.console.print()
-        self.console.print(
-            Rule(
-                Text("  assistant  ", style="bold"),
-                style="border",
-                align="left",
-            )
-        )   
-        self.console.print()
+        self.console.print(self._rule("assistant", "border.active"))
+
+    def stream_assistant_delta(self, content: str) -> None:
+        self._stream_buffer.append(content)
 
     def end_assistant(self) -> None:
-        """Flush buffer as rendered Markdown then close the rule."""
         full_text = "".join(self._stream_buffer).strip()
         self._stream_buffer = []
-
         if full_text:
-            md = Markdown(
-                full_text,
-                code_theme="github-dark",
-                hyperlinks=True,
-            )
+            body = Markdown(full_text, code_theme="github-dark", hyperlinks=True)
             self.console.print(
                 Panel(
-                    Padding(md, (0, 1)),
+                    Padding(body, (0, 1)),
                     border_style="border",
+                    box=box.ROUNDED,
                     padding=(1, 2),
+                    width=self._panel_width(),
                 )
             )
-
         self.console.print()
-        self.console.print(Rule(style="#1a2e1e"))
 
-    def show_help(self) -> None:
-        help_lines = [
-            "/help — Show this help",
-            "/clear — Clear conversation context",
-            "/config — Show current configuration",
-            "/model <name> — Change model name",
-            "/approval <policy> — Set approval policy",
-            "/tools — List available tools",
-            "/mcp — Show MCP server status",
-            "/stats — Show session statistics",
-            "/save — Save current session",
-            "/sessions — List saved sessions",
-            "/resume <session_id> — Resume a saved session",
-            "/checkpoint — Create a checkpoint",
-            "/restore <checkpoint_id> — Restore from checkpoint",
-            "/exit or /quit — Exit the CLI",
-        ]
-
-        rows = []
-        for line in help_lines:
-            cmd, _, desc = line.partition(" — ")
-            rows.append((cmd.strip(), desc.strip()))
-
-        table = Table(box=None, show_header=False, padding=(0, 2))
-        table.add_column(style="bold #22d3ee", no_wrap=True)
-        table.add_column(style="assistant")
-        for cmd, desc in rows:
-            table.add_row(cmd, desc)
-
-        self.console.print()
-        self.console.print(
-            Panel(
-                table,
-                title=Text(" ⌘  Commands ", style="bold #10b981"),
-                title_align="left",
-                border_style="#1e3a2a",
-                box=_PANEL_BOX,
-                padding=(0, 1),
-            )
-        )
-
-    # ── Argument ordering ─────────────────────────────────────────────────────
-
-    def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[tuple]:
-        _PREFERRED_ORDER = {
-            "read_file":  ["path", "offset", "limit"],
+    def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
+        preferred_order = {
+            "read_file": ["path", "offset", "limit"],
             "write_file": ["path", "create_directories", "content"],
-            "edit":       ["path", "replace_all", "old_string", "new_string"],
-            "shell":      ["command", "timeout", "cwd"],
-            "list_dir":   ["path", "include_hidden"],
-            "grep":       ["path", "case_insensitive", "pattern"],
-            "glob":       ["path", "pattern"],
-            "todos":      ["id", "action", "content"],
-            "memory":     ["action", "key", "value"],
+            "edit": ["path", "replace_all", "old_string", "new_string"],
+            "apply_patch": ["path", "patch"],
+            "shell": ["command", "timeout", "cwd"],
+            "list_dir": ["path", "include_hidden"],
+            "grep": ["path", "case_insensitive", "pattern"],
+            "glob": ["path", "pattern"],
+            "todos": ["id", "action", "content"],
+            "memory": ["action", "key", "value"],
+            "search_entity": ["keyword", "top_k"],
+            "traverse_graph": [
+                "start_ids",
+                "direction",
+                "hops",
+                "edge_types",
+                "node_types",
+            ],
+            "retrieve_entity": ["entity_id"],
         }
-        preferred = _PREFERRED_ORDER.get(tool_name, [])
         ordered: list[tuple[str, Any]] = []
         seen: set[str] = set()
-        for key in preferred:
+        for key in preferred_order.get(tool_name, []):
             if key in args:
                 ordered.append((key, args[key]))
                 seen.add(key)
-        ordered.extend((k, v) for k, v in args.items() if k not in seen)
+        ordered.extend((key, value) for key, value in args.items() if key not in seen)
         return ordered
 
     def _render_args_table(self, tool_name: str, args: dict[str, Any]) -> Table:
         table = Table.grid(padding=(0, 2))
-        table.add_column(style="muted", justify="right", no_wrap=True, min_width=12)
+        table.add_column(style="muted", justify="right", no_wrap=True, min_width=10)
         table.add_column(style="code", overflow="fold")
 
         for key, value in self._ordered_args(tool_name, args):
-            if isinstance(value, str) and key in {"content", "old_string", "new_string"}:
-                lines = len(value.splitlines()) or 0
-                size  = len(value.encode("utf-8", errors="replace"))
-                value = f"‹{lines} lines · {size} B›"
-            if not isinstance(value, str):
+            if isinstance(value, str) and key in {
+                "content",
+                "old_string",
+                "new_string",
+                "patch",
+            }:
+                line_count = len(value.splitlines()) or 0
+                byte_count = len(value.encode("utf-8", errors="replace"))
+                value = f"<{line_count} lines, {byte_count} bytes>"
+            elif not isinstance(value, str):
                 value = str(value)
-            table.add_row(f"{key}", value)
-
+            table.add_row(key, value)
         return table
 
-    # ── Tool call start ────────────────────────────────────────────────────────
+    def _tool_title(self, name: str, call_id: str, status: str, success: bool | None) -> Text:
+        if success is None:
+            state = Text("running", style="warning")
+        elif success:
+            state = Text("done", style="success")
+        else:
+            state = Text("failed", style="error")
+
+        title = Text()
+        title.append("tool ", style="muted")
+        title.append(name, style="tool")
+        title.append("  ")
+        title.append(f"#{call_id[:8]}", style="muted")
+        title.append("  ")
+        title.append_text(state)
+        if status:
+            title.append(f"  {status}", style="muted")
+        return title
+
+    def _display_args(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        display_args = dict(arguments)
+        for key in ("path", "cwd"):
+            val = display_args.get(key)
+            if isinstance(val, str) and self.cwd:
+                display_args[key] = str(display_path_rel_to_cwd(val, self.cwd))
+        return display_args
 
     def tool_call_start(
         self,
@@ -239,59 +232,59 @@ class TUI:
         tool_kind: str | None,
         arguments: dict[str, Any],
     ) -> None:
+        self._sync_console_size()
         self._tool_args_by_call_id[call_id] = arguments
+        if name in _QUIET_SUCCESS_TOOLS:
+            summary = self._metadata_line(name, arguments, {}, None)
+            suffix = f"  {summary}" if summary else ""
+            self.console.print(
+                Text.assemble(
+                    ("  tool ", "muted"),
+                    (name, "tool"),
+                    ("  ", "muted"),
+                    (f"#{call_id[:8]}", "muted"),
+                    ("  running", "warning"),
+                    (suffix, "muted"),
+                )
+            )
+            return
 
-        icon = _tool_icon(tool_kind)
-
-        title = Text.assemble(
-            (f"{icon} ", "muted"),
-            (name, "bold"),
-            ("   ", ""),
-            (f"#{call_id[:6]}", "muted"),
-        )
-
-        subtitle = Text("running", style="muted")
-
-        display_args = dict(arguments)
-        for key in ("path", "cwd"):
-            val = display_args.get(key)
-            if isinstance(val, str) and self.cwd:
-                display_args[key] = str(display_path_rel_to_cwd(val, self.cwd))
-
+        display_args = self._display_args(arguments)
         body = (
             self._render_args_table(name, display_args)
             if display_args
             else Text("no arguments", style="muted")
         )
-
         self.console.print()
         self.console.print(
             Panel(
                 body,
-                title=title,
-                subtitle=subtitle,
-                border_style="border",   # ✅ always neutral
+                title=self._tool_title(name, call_id, "", None),
+                title_align="left",
+                border_style=_tool_border(tool_kind, name),
+                box=box.ROUNDED,
                 padding=(1, 2),
+                width=self._panel_width(),
             )
         )
-
-    # ── Tool call complete ─────────────────────────────────────────────────────
 
     def _extract_read_file_code(self, text: str) -> tuple[int, str] | None:
         body = text
         header_match = re.match(r"^Showing lines (\d+)-(\d+) of (\d+)\n\n", text)
         if header_match:
-            body = text[header_match.end():]
+            body = text[header_match.end() :]
+
         code_lines: list[str] = []
         start_line: int | None = None
         for line in body.splitlines():
-            m = re.match(r"^\s*(\d+)\|(.*)$", line)
-            if not m:
+            match = re.match(r"^\s*(\d+)\|(.*)$", line)
+            if not match:
                 return None
-            line_no = int(m.group(1))
+            line_no = int(match.group(1))
             if start_line is None:
                 start_line = line_no
-            code_lines.append(m.group(2))
+            code_lines.append(match.group(2))
+
         if start_line is None:
             return None
         return start_line, "\n".join(code_lines)
@@ -300,24 +293,127 @@ class TUI:
         if not path:
             return "text"
         return {
-            ".py": "python", ".js": "javascript", ".jsx": "jsx",
-            ".ts": "typescript", ".tsx": "tsx", ".json": "json",
-            ".toml": "toml", ".yaml": "yaml", ".yml": "yaml",
-            ".md": "markdown", ".sh": "bash", ".bash": "bash",
-            ".zsh": "bash", ".rs": "rust", ".go": "go",
-            ".java": "java", ".kt": "kotlin", ".swift": "swift",
-            ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp",
-            ".css": "css", ".html": "html", ".xml": "xml", ".sql": "sql",
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "jsx",
+            ".ts": "typescript",
+            ".tsx": "tsx",
+            ".json": "json",
+            ".toml": "toml",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".md": "markdown",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "bash",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".kt": "kotlin",
+            ".swift": "swift",
+            ".c": "c",
+            ".h": "c",
+            ".cpp": "cpp",
+            ".hpp": "cpp",
+            ".css": "css",
+            ".html": "html",
+            ".xml": "xml",
+            ".sql": "sql",
         }.get(Path(path).suffix.lower(), "text")
 
-    def _meta_text(self, *parts: str) -> Text:
-        """Render a dimmed metadata line like  path · lines 1-40 of 200"""
-        t = Text(style="muted")
-        for i, part in enumerate(parts):
-            if i:
-                t.append("  ·  ")
-            t.append(part)
-        return t
+    def _metadata_line(
+        self,
+        name: str,
+        args: dict[str, Any],
+        metadata: dict[str, Any],
+        exit_code: int | None,
+    ) -> str:
+        parts: list[str] = []
+        path = metadata.get("path") or args.get("path") or args.get("cwd")
+        if isinstance(path, str):
+            parts.append(_short_path(path, self.cwd))
+        if name == "shell" and exit_code is not None:
+            parts.append(f"exit {exit_code}")
+        if isinstance(metadata.get("entries"), int):
+            parts.append(f"{metadata['entries']} entries")
+        if isinstance(metadata.get("matches"), int):
+            parts.append(f"{metadata['matches']} matches")
+        if isinstance(metadata.get("results"), int):
+            parts.append(f"{metadata['results']} results")
+        if isinstance(metadata.get("content_length"), int):
+            parts.append(f"{metadata['content_length']} bytes")
+        return " | ".join(parts)
+
+    def _build_tool_blocks(
+        self,
+        call_id: str,
+        name: str,
+        success: bool,
+        output: str,
+        error: str | None,
+        metadata: dict[str, Any],
+        diff: str | None,
+        exit_code: int | None,
+    ) -> list[Any]:
+        blocks: list[Any] = []
+
+        if error and not success:
+            blocks.append(Text(error, style="error"))
+
+        if name in {"write_file", "edit", "apply_patch", "patch"} and diff:
+            output_line = output.strip() if output.strip() else "Completed"
+            blocks.append(Text(output_line, style="muted"))
+            blocks.append(
+                Syntax(
+                    truncate_text(diff, self.config.model_name, self._max_block_tokens),
+                    "diff",
+                    theme="github-dark",
+                    word_wrap=True,
+                )
+            )
+            return blocks
+
+        if name == "shell":
+            command = self._tool_args_by_call_id.get(call_id, {}).get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(Text(f"$ {command.strip()}", style="muted"))
+
+        if name == "read_file" and success:
+            primary_path = metadata.get("path")
+            extracted = self._extract_read_file_code(output)
+            if isinstance(primary_path, str) and extracted:
+                start_line, code = extracted
+                shown_start = metadata.get("shown_start")
+                shown_end = metadata.get("shown_end")
+                total_lines = metadata.get("total_lines")
+                header = _short_path(primary_path, self.cwd)
+                if shown_start and shown_end and total_lines:
+                    header = f"{header} | lines {shown_start}-{shown_end} of {total_lines}"
+                blocks.append(Text(header, style="muted"))
+                blocks.append(
+                    Syntax(
+                        code,
+                        self._guess_language(primary_path),
+                        theme="github-dark",
+                        line_numbers=True,
+                        start_line=start_line,
+                        word_wrap=False,
+                    )
+                )
+                return blocks
+
+        output_display = truncate_text(
+            output,
+            self.config.model_name,
+            self._max_block_tokens,
+        )
+        if output_display.strip():
+            blocks.append(
+                Syntax(output_display, "text", theme="github-dark", word_wrap=True)
+            )
+        elif not blocks:
+            blocks.append(Text("completed without output", style="muted"))
+        return blocks
 
     def tool_call_complete(
         self,
@@ -332,436 +428,146 @@ class TUI:
         truncated: bool,
         exit_code: int | None,
     ) -> None:
-        status_style = "success" if success else "error"
-        status_icon = "✓" if success else "✗"
+        self._sync_console_size()
+        metadata = dict(metadata or {})
+        metadata["call_id"] = call_id
 
-        title = Text.assemble(
-            (f"{status_icon} ", status_style),
-            (name, "bold"),
-            ("   ", ""),
-            (f"#{call_id[:6]}", "muted"),
-        )
+        if name in _QUIET_SUCCESS_TOOLS and success:
+            args = self._tool_args_by_call_id.get(call_id, {})
+            status = self._metadata_line(name, args, metadata, exit_code)
+            suffix = f"  {status}" if status else ""
+            self.console.print(
+                Text.assemble(
+                    ("  tool ", "muted"),
+                    (name, "tool"),
+                    ("  ", "muted"),
+                    (f"#{call_id[:8]}", "muted"),
+                    ("  done", "success"),
+                    (suffix, "muted"),
+                )
+            )
+            return
 
         args = self._tool_args_by_call_id.get(call_id, {})
-
-        primary_path = None
-        blocks = []
-        if isinstance(metadata, dict) and isinstance(metadata.get("path"), str):
-            primary_path = metadata.get("path")
-
-        if name == "read_file" and success:
-            if primary_path:
-                start_line, code = self._extract_read_file_code(output)
-
-                shown_start = metadata.get("shown_start")
-                shown_end = metadata.get("shown_end")
-                total_lines = metadata.get("total_lines")
-                pl = self._guess_language(primary_path)
-
-                header_parts = [display_path_rel_to_cwd(primary_path, self.cwd)]
-                header_parts.append(" • ")
-
-                if shown_start and shown_end and total_lines:
-                    header_parts.append(
-                        f"lines {shown_start}-{shown_end} of {total_lines}"
-                    )
-
-                header = "".join(header_parts)
-                blocks.append(Text(header, style="muted"))
-                blocks.append(
-                    Syntax(
-                        code,
-                        pl,
-                        theme="github-dark",
-                        line_numbers=True,
-                        start_line=start_line,
-                        word_wrap=False,
-                    )
-                )
-            else:
-                output_display = truncate_text(
-                    output,
-                    "",
-                    self._max_block_tokens,
-                )
-                blocks.append(
-                    Syntax(
-                        output_display,
-                        "text",
-                        theme="github-dark",
-                        word_wrap=False,
-                    )
-                )
-        elif name in {"write_file", "edit"} and success and diff:
-            output_line = output.strip() if output.strip() else "Completed"
-            blocks.append(Text(output_line, style="muted"))
-            diff_text = diff
-            diff_display = truncate_text(
-                diff_text,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    diff_display,
-                    "diff",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "shell" and success:
-            command = args.get("command")
-            if isinstance(command, str) and command.strip():
-                blocks.append(Text(f"$ {command.strip()}", style="muted"))
-
-            if exit_code is not None:
-                blocks.append(Text(f"exit_code={exit_code}", style="muted"))
-
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "list_dir" and success:
-            entries = metadata.get("entries")
-            path = metadata.get("path")
-            summary = []
-            if isinstance(path, str):
-                summary.append(path)
-
-            if isinstance(entries, int):
-                summary.append(f"{entries} entries")
-
-            if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
-
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "grep" and success:
-            matches = metadata.get("matches")
-            files_searched = metadata.get("files_searched")
-            summary = []
-            if isinstance(matches, int):
-                summary.append(f"{matches} matches")
-            if isinstance(files_searched, int):
-                summary.append(f"searched {files_searched} files")
-
-            if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
-
-            output_display = truncate_text(
-                output, self.config.model_name, self._max_block_tokens
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "glob" and success:
-            matches = metadata.get("matches")
-            if isinstance(matches, int):
-                blocks.append(Text(f"{matches} matches", style="muted"))
-
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "web_search" and success:
-            results = metadata.get("results")
-            query = args.get("query")
-            summary = []
-            if isinstance(query, str):
-                summary.append(query)
-            if isinstance(results, int):
-                summary.append(f"{results} results")
-
-            if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
-
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "web_fetch" and success:
-            status_code = metadata.get("status_code")
-            content_length = metadata.get("content_length")
-            url = args.get("url")
-            summary = []
-            if isinstance(status_code, int):
-                summary.append(str(status_code))
-            if isinstance(content_length, int):
-                summary.append(f"{content_length} bytes")
-            if isinstance(url, str):
-                summary.append(url)
-
-            if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
-
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "todos" and success:
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        elif name == "memory" and success:
-            action = args.get("action")
-            key = args.get("key")
-            found = metadata.get("found")
-            summary = []
-            if isinstance(action, str) and action:
-                summary.append(action)
-            if isinstance(key, str) and key:
-                summary.append(key)
-            if isinstance(found, bool):
-                summary.append("found" if found else "missing")
-
-            if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
-            output_display = truncate_text(
-                output,
-                self.config.model_name,
-                self._max_block_tokens,
-            )
-            blocks.append(
-                Syntax(
-                    output_display,
-                    "text",
-                    theme="github-dark",
-                    word_wrap=True,
-                )
-            )
-        else:
-            if error and not success:
-                blocks.append(Text(error, style="error"))
-
-            output_display = truncate_text(
-                output, self.config.model_name, self._max_block_tokens
-            )
-            if output_display.strip():
-                blocks.append(
-                    Syntax(
-                        output_display,
-                        "text",
-                        theme="github-dark",
-                        word_wrap=True,
-                    )
-                )
-            else:
-                blocks.append(Text("(no output)", style="muted"))
-
+        status = self._metadata_line(name, args, metadata, exit_code)
+        blocks = self._build_tool_blocks(
+            call_id, name, success, output, error, metadata, diff, exit_code
+        )
         if truncated:
-            blocks.append(Text("note: tool output was truncated", style="warning"))
+            blocks.append(Text("output truncated", style="warning"))
 
-        subtitle = Text(
-            "completed" if success else "failed",
-            style=status_style
-        )
-
-        panel = Panel(
-            Group(*blocks),
-            title=title,
-            subtitle=subtitle,
-            border_style="border",   
-            padding=(1, 2),
-        )
         self.console.print()
-        self.console.print(panel)
-
-    # ── MCP status ────────────────────────────────────────────────────────────
+        self.console.print(
+            Panel(
+                Group(*blocks),
+                title=self._tool_title(name, call_id, status, success),
+                title_align="left",
+                border_style=_tool_border(tool_kind, name) if success else "error",
+                box=box.ROUNDED,
+                padding=(1, 2),
+                width=self._panel_width(),
+            )
+        )
 
     def print_mcp_status(
         self,
         servers: list[dict[str, Any]],
         mcp_tool_names: list[str],
     ) -> None:
-        if not servers:
-            self.console.print(
-                Text("  ◉  no MCP servers configured", style="muted")
-            )
-            return
-
+        self._sync_console_size()
         table = Table(
-            box=_TABLE_BOX,
+            box=box.SIMPLE,
             border_style="border",
             show_header=True,
             header_style="muted",
             show_edge=False,
             padding=(0, 2),
         )
-        table.add_column("Server",  style="bold #22d3ee", no_wrap=True)
-        table.add_column("Status",  no_wrap=True)
-        table.add_column("Tools",   justify="right", style="muted")
+        table.add_column("Server", style="surface.soft", no_wrap=True)
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Tools", justify="right", style="muted")
 
-        _status_styles = {
-            "connected":  ("connected",   "bold #22c55e"),
-            "error":      ("error",       "bold #ef4444"),
-            "connecting": ("connecting…", "bold #f59e0b"),
-        }
+        if servers:
+            for server in servers:
+                status = str(server.get("status", "unknown"))
+                style = {
+                    "connected": "success",
+                    "error": "error",
+                    "connecting": "warning",
+                }.get(status, "muted")
+                table.add_row(
+                    str(server.get("name", "unknown")),
+                    Text(status, style=style),
+                    str(server.get("tools", 0)),
+                )
+        else:
+            table.add_row("none", Text("not configured", style="muted"), "0")
 
-        for server in servers:
-            name   = str(server.get("name",   "unknown"))
-            status = str(server.get("status", "unknown"))
-            tools  = str(server.get("tools",  0))
-            label, style = _status_styles.get(status, (status, "muted"))
-            table.add_row(name, Text(label, style=style), tools)
-
-        tools_line = (
-            Text("  " + "  ·  ".join(mcp_tool_names), style="muted")
+        tool_summary = (
+            ", ".join(mcp_tool_names[:8]) + (" ..." if len(mcp_tool_names) > 8 else "")
             if mcp_tool_names
-            else Text("  no tools loaded", style="muted")
+            else "no MCP tools loaded"
         )
 
-        self.console.print()
         self.console.print(
             Panel(
-                Group(table, Text(""), tools_line),
-                title=Text(" ◉  MCP ", style="bold #22d3ee"),
+                Group(table, Text(tool_summary, style="muted")),
+                title=Text("mcp", style="accent.blue"),
                 title_align="left",
-                border_style="#164e63",          # cyan-900
-                box=_PANEL_BOX,
-                padding=(0, 1),
+                border_style="border",
+                box=box.ROUNDED,
+                padding=(1, 2),
+                width=self._panel_width(),
             )
         )
-
-    # ── Welcome screen ────────────────────────────────────────────────────────
-    # (unchanged — user explicitly asked to keep it)
 
     def print_welcome(self, title: str, version: str, cwd: str, model: str = "") -> None:
-        PAT_ASCII = (
-            " ██████╗  █████╗ ████████╗",
-            " ██╔══██╗██╔══██╗╚══██╔══╝",
-            " ██████╔╝███████║   ██║   ",
-            " ██╔═══╝ ██╔══██║   ██║   ",
-            " ██║     ██║  ██║   ██║   ",
-            " ╚═╝     ╚═╝  ╚═╝   ╚═╝  ",
-        )
+        self._sync_console_size()
+        width = self._panel_width()
+        model_name = model or self.config.model_name
 
         header = Text()
-        header.append("  Welcome to\n", style="bold dim white")
-        for line in PAT_ASCII:
-            header.append(line + "\n", style="bold bright_green")
-        header.append("\n")
-        header.append("  v-" + version, style="bold green")
-        header.append("   your intelligent coding partner\n", style="dim white")
+        header.append(f"{title} ", style="accent bold")
+        header.append(f"v{version}", style="muted")
+        header.append("  |  ", style="border")
+        header.append("coding agent", style="surface.soft")
 
-        divider = Text("─" * 56, style="dim green")
+        meta = Table.grid(padding=(0, 2))
+        meta.add_column(style="muted", no_wrap=True)
+        meta.add_column(style="surface")
+        meta.add_row("model", model_name)
+        meta.add_row("cwd", str(cwd))
 
-        info = Text()
-        info.append("  ● ", style="bold bright_green")
-        info.append("model", style="dim white")
-        info.append(" : ", style="dim green")
-        info.append((model or self.config.model_name) + "\n", style="bold white")
-        info.append("  ● ", style="bold bright_green")
-        info.append("cwd  ", style="dim white")
-        info.append(" : ", style="dim green")
-        info.append(str(cwd) + "\n", style="white")
-
-        hint = Text()
-        hint.append("  type your message and press Enter  ", style="dim white")
-        hint.append("·", style="dim green")
-        hint.append("  Ctrl+C to interrupt", style="dim white")
-
-        full = Group(
-            Padding(header,  (1, 1, 0, 1)),
-            Padding(divider, (0, 1)),
-            Padding(info,    (0, 1)),
-            Padding(hint,    (0, 1, 1, 1)),
+        hint = Text("Type a message and press Enter. Ctrl+C interrupts.", style="muted")
+        body = Group(
+            Align.left(header),
+            Text(""),
+            meta,
+            Text(""),
+            hint,
         )
 
-        self.console.print()
+        self.console.clear()
         self.console.print(
             Panel(
-                full,
-                border_style="green",
-                box=box.HEAVY,
-                padding=(0, 0),
-                subtitle=Text(f" {title} ", style="bold bright_green"),
-                subtitle_align="right",
+                body,
+                border_style="border.active",
+                box=box.ROUNDED,
+                padding=(1, 2),
+                width=width,
             )
         )
-        self.console.print()
-
-    # ── Confirmation dialog ───────────────────────────────────────────────────
 
     def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
-        blocks: list = []
-
-        header = Text.assemble(
-            (confirmation.tool_name, "bold #22d3ee"),
-            ("   ", ""),
-            (confirmation.description, "muted"),
-        )
-        blocks.append(header)
+        self._sync_console_size()
+        blocks: list[Any] = [
+            Text(confirmation.tool_name, style="tool.write"),
+            Text(confirmation.description, style="surface.soft"),
+        ]
 
         if confirmation.command:
             blocks.append(Text(""))
-            blocks.append(
-                Text.assemble(
-                    ("  ❯  ", "muted"),
-                    (confirmation.command, "bold #c084fc"),
-                )
-            )
+            blocks.append(Text(f"$ {confirmation.command}", style="warning"))
 
         if confirmation.diff:
             blocks.append(Text(""))
@@ -778,21 +584,60 @@ class TUI:
         self.console.print(
             Panel(
                 Group(*blocks),
-                title=Text(" ⚠  approval required ", style="bold #fbbf24"),
+                title=Text("approval required", style="warning"),
                 title_align="left",
-                subtitle=Text(" [y] approve   [n] deny ", style="muted"),
+                subtitle=Text("y approve | n deny", style="muted"),
                 subtitle_align="right",
-                border_style="#78350f",          # amber-900
-                box=_PANEL_BOX,
+                border_style="warning",
+                box=box.ROUNDED,
                 padding=(1, 2),
+                width=self._panel_width(),
             )
         )
 
         response = Prompt.ask(
-            Text.assemble(("  approve?", "bold #fbbf24"), (" [y/n]", "muted")),
+            Text.assemble(("approve?", "warning"), (" [y/n]", "muted")),
             choices=["y", "n", "yes", "no"],
             default="n",
             show_choices=False,
         )
         self.console.print()
         return response.lower() in {"y", "yes"}
+
+    def show_help(self) -> None:
+        self._sync_console_size()
+        rows = [
+            ("/help", "Show this help"),
+            ("/clear", "Clear conversation context"),
+            ("/config", "Show current configuration"),
+            ("/model <name>", "Change model name"),
+            ("/approval <policy>", "Set approval policy"),
+            ("/tools", "List available tools"),
+            ("/mcp", "Show MCP server status"),
+            ("/stats", "Show session statistics"),
+            ("/save", "Save current session"),
+            ("/sessions", "List saved sessions"),
+            ("/resume <session_id>", "Resume a saved session"),
+            ("/checkpoint", "Create a checkpoint"),
+            ("/restore <checkpoint_id>", "Restore from checkpoint"),
+            ("/exit", "Exit the CLI"),
+        ]
+
+        table = Table(box=None, show_header=False, padding=(0, 2))
+        table.add_column(style="accent", no_wrap=True)
+        table.add_column(style="surface.soft")
+        for command, description in rows:
+            table.add_row(command, description)
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                table,
+                title=Text("commands", style="accent"),
+                title_align="left",
+                border_style="border",
+                box=box.ROUNDED,
+                padding=(1, 2),
+                width=self._panel_width(),
+            )
+        )

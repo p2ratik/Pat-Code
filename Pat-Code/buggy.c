@@ -1,24 +1,18 @@
-#include <stdio.h
+#include <stdio.h>
 
-int main( {
+int main() {
+    int x = 0;
+    int y = 0;
 
-    int x ==
-    int y = ;
-
-    if x > 5 {
-        printf("Hello"
+    if (x > 5) {
+        printf("Hello\n");
     }
 
-    while( {
-        x++
+    while (x < 5) {
+        x++;
     }
 
-    int a[abc];
+    int a[5];
 
-    return return 0   
-
-<<<<<<<<<
-
-}}}}}}
-
-this should not be here
+    return 0;
+}

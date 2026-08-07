@@ -33,7 +33,6 @@ class CLI:
             return await self._process_message(message)    
         
     async def run_interactive(self) -> str | None:
-
         async with Agent(self.config) as agent:
             self.tui.print_welcome(
                 title="PAT",

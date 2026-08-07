@@ -7,6 +7,7 @@ Runtime deps: tree-sitter >= 0.24, individual tree-sitter-<lang> packages.
 """
 
 import logging
+import sys as _sys
 from collections import namedtuple
 from pathlib import Path
 
@@ -71,6 +72,19 @@ def _register() -> None:
 
 _register()
 
+if not _LANG_REGISTRY:
+    logging.error(
+        "repo_intel: _register() loaded 0 tree-sitter language parsers. "
+        "Graph indexing will produce no results. If running as a packaged executable, "
+        "ensure tree_sitter_python, tree_sitter_javascript etc. are in hiddenimports."
+    )
+else:
+    logging.debug(
+        "repo_intel: registered %d tree-sitter language(s): %s",
+        len(_LANG_REGISTRY),
+        ", ".join(sorted(set(name for name, _ in _LANG_REGISTRY.values()))),
+    )
+
 # Cache parsed Language objects so we don't reconstruct them per-file
 _LANGUAGE_CACHE: dict[str, Language] = {}
 _PARSER_CACHE: dict[str, Parser] = {}
@@ -90,12 +104,34 @@ def _get_language_and_parser(ext: str) -> tuple[Language, Parser] | None:
     return language, parser
 
 
-_SCM_DIR = Path(__file__).parent.parent / "queries" / "tree-sitter-language-pack"
+def _get_scm_base() -> Path:
+    """Resolve the queries directory whether running frozen (PyInstaller) or from source."""
+    if getattr(_sys, 'frozen', False):
+        # PyInstaller extracts bundled data to sys._MEIPASS
+        return Path(_sys._MEIPASS) / "queries" / "tree-sitter-language-pack"
+    return Path(__file__).parent.parent / "queries" / "tree-sitter-language-pack"
+
+_SCM_DIR = _get_scm_base()
+
+if not _SCM_DIR.exists():
+    logging.error(
+        "repo_intel: tree-sitter query directory not found at '%s'. "
+        "Code intelligence (search_entity / traverse_graph) will return no results. "
+        "If running as a packaged executable, ensure .scm files are bundled in the spec.",
+        _SCM_DIR,
+    )
+
+# Map internal language names that differ from their .scm filename prefix.
+# e.g. _LANG_REGISTRY uses 'c_sharp' but the file is 'csharp-tags.scm'.
+_SCM_LANG_NAME_MAP: dict[str, str] = {
+    "c_sharp": "csharp",
+}
 
 
 def _load_scm(lang_name: str, suffix: str) -> str | None:
     """Read a .scm query file from the queries directory, return text or None."""
-    path = _SCM_DIR / f"{lang_name}-{suffix}.scm"
+    file_lang = _SCM_LANG_NAME_MAP.get(lang_name, lang_name)
+    path = _SCM_DIR / f"{file_lang}-{suffix}.scm"
     return path.read_text(encoding="utf-8") if path.exists() else None
 
 

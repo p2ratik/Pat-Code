@@ -1,4 +1,5 @@
 from datetime import datetime
+import hashlib
 import json
 from typing import Any
 import uuid
@@ -59,7 +60,13 @@ class Session:
     def get_repo_intel(self) -> RepoIntelligence:
         """Return the session-scoped RepoIntelligence, creating it on first call."""
         if self._repo_intel is None:
-            db_path = get_data_dir() / "repo_intel.db"
+            # Use a hash of the resolved project root so each project gets its
+            # own isolated SQLite database. A single shared repo_intel.db would
+            # cause _sync_with_disk() to wipe entities every time the CWD changes.
+            cwd_hash = hashlib.sha256(
+                str(self.config.cwd.resolve()).encode()
+            ).hexdigest()[:16]
+            db_path = get_data_dir() / "repo_intel" / f"{cwd_hash}.db"
             self._repo_intel = RepoIntelligence(
                 root=self.config.cwd,
                 db_path=db_path,
