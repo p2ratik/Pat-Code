@@ -32,8 +32,31 @@ dependencies = [
     "fastmcp>=2.0.0",
     "ddgs>=9.0.0",
     "redis>=5.0.0",
-    # tomllib is in stdlib for Python 3.11+; tomli is the fallback
     "tomli>=2.0.0; python_version < '3.11'",
+    # repo_intel — code parsing
+    "tree-sitter>=0.23.0",
+    "tree-sitter-python>=0.23.0",
+    "tree-sitter-javascript>=0.23.0",
+    "tree-sitter-java>=0.23.0",
+    "tree-sitter-c>=0.23.0",
+    "tree-sitter-cpp>=0.23.0",
+    "tree-sitter-rust>=0.23.0",
+    "tree-sitter-go>=0.23.0",
+    "tree-sitter-bash>=0.23.0",
+    "tree-sitter-ruby>=0.23.0",
+    "tree-sitter-c-sharp>=0.23.0",
+    "tree-sitter-lua>=0.23.0",
+    "tree-sitter-scala>=0.23.0",
+    "tree-sitter-kotlin>=0.23.0",
+    "tree-sitter-swift>=0.23.0",
+    "tree-sitter-typescript>=0.23.0",
+    "tree-sitter-php>=0.23.0",
+    # repo_intel — graph / search
+    "pathspec>=0.12.0",
+    "rank-bm25>=0.2.2",
+    "networkx>=3.0",
+    # interactive input
+    "prompt-toolkit>=3.0.50",
 ]
 
 classifiers = [
